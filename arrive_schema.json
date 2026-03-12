@@ -1,0 +1,74 @@
+{
+  "properties": {
+    "actual_arrival_date": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Actual Arrival Date"
+    },
+    "receiving_dock": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Receiving Dock"
+    },
+    "driver_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Driver Name"
+    },
+    "driver_phone": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Driver Phone"
+    },
+    "vehicle_number": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Vehicle Number"
+    },
+    "notes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Notes"
+    },
+    "warehouse_code": {
+      "type": "string",
+      "title": "Warehouse Code"
+    }
+  },
+  "type": "object",
+  "required": [
+    "warehouse_code"
+  ],
+  "title": "ArrivalConfirmationWithWarehouse",
+  "description": "Extended arrival confirmation that includes warehouse code"
+}
