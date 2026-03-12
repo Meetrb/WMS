@@ -1,0 +1,300 @@
+{
+  "/inbound/today/arrived": {
+    "get": {
+      "tags": [
+        "Inbound"
+      ],
+      "summary": "Get Today Arrived Asns",
+      "description": "Get all ASNs that arrived today with complete details",
+      "operationId": "get_today_arrived_asns_inbound_today_arrived_get",
+      "security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "warehouse_code",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filter by warehouse code",
+            "title": "Warehouse Code"
+          },
+          "description": "Filter by warehouse code"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TodayArrivedASNResponse"
+                },
+                "title": "Response Get Today Arrived Asns Inbound Today Arrived Get"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "/inbound/today/arrived/summary": {
+    "get": {
+      "tags": [
+        "Inbound"
+      ],
+      "summary": "Get Today Arrived Summary",
+      "description": "Get summary of today's arrived ASNs\n\nReturns:\n- Total arrived count\n- Count with GRN\n- Count pending GRN\n- Quantity totals (expected, received, accepted, rejected)\n- Complete list of arrived ASNs with all details\n\nAccessible to: All authenticated users",
+      "operationId": "get_today_arrived_summary_inbound_today_arrived_summary_get",
+      "security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "warehouse_code",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filter by warehouse code",
+            "title": "Warehouse Code"
+          },
+          "description": "Filter by warehouse code"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TodayArrivedSummaryResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "/inbound/today/arrived/with-grn": {
+    "get": {
+      "tags": [
+        "Inbound"
+      ],
+      "summary": "Get Today Arrived With Grn",
+      "description": "Get today's arrived ASNs that already have GRN created\n\nAccessible to: All authenticated users",
+      "operationId": "get_today_arrived_with_grn_inbound_today_arrived_with_grn_get",
+      "security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "warehouse_code",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filter by warehouse code",
+            "title": "Warehouse Code"
+          },
+          "description": "Filter by warehouse code"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TodayArrivedASNResponse"
+                },
+                "title": "Response Get Today Arrived With Grn Inbound Today Arrived With Grn Get"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "/inbound/today/arrived/pending-grn": {
+    "get": {
+      "tags": [
+        "Inbound"
+      ],
+      "summary": "Get Today Arrived Pending Grn",
+      "description": "Get today's arrived ASNs that are pending GRN creation\n\nAccessible to: All authenticated users",
+      "operationId": "get_today_arrived_pending_grn_inbound_today_arrived_pending_grn_get",
+      "security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "warehouse_code",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filter by warehouse code",
+            "title": "Warehouse Code"
+          },
+          "description": "Filter by warehouse code"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TodayArrivedASNResponse"
+                },
+                "title": "Response Get Today Arrived Pending Grn Inbound Today Arrived Pending Grn Get"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "/inbound/asn/{asn_number}/arrive": {
+    "post": {
+      "tags": [
+        "Inbound"
+      ],
+      "summary": "Process Existing Asn Arrival",
+      "description": "Process arrival of an existing ASN from the asns table",
+      "operationId": "process_existing_asn_arrival_inbound_asn__asn_number__arrive_post",
+      "security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "asn_number",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "title": "Asn Number"
+          }
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ArrivalConfirmationWithWarehouse"
+            }
+          }
+        }
+      },
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundShipmentResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

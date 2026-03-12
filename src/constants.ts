@@ -1,0 +1,1 @@
+export const RECEIVER_BARCODE = "8901491103084";
