@@ -29,6 +29,7 @@ import {
 
 const mainNav = [
     { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+    { title: "Worker Dashboard", url: "/dashboard/worker", icon: LayoutDashboard },
     { title: "ASNs", url: "/dashboard/asns", icon: FileCheck },
     { title: "Inbounds", url: "/dashboard/purchase-orders", icon: ClipboardList },
     { title: "Sales Orders", url: "/dashboard/sales-orders", icon: ShoppingCart },
@@ -56,12 +57,16 @@ export function AppSidebar() {
             return false;
         }
 
+        if (item.title === "Worker Dashboard" && role !== "putaway_worker") {
+            return false;
+        }
+
         if (role === "grn_manager") {
             return item.title === "Purchase Orders";
         }
 
         if (role === "putaway_worker") {
-            return item.title === "Putaway Tasks";
+            return item.title === "Worker Dashboard";
         }
 
         if (item.title === "Putaway Tasks" && role !== "putaway_worker" && role !== "admin" && role !== "manager") {

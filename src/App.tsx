@@ -11,6 +11,7 @@ import { AuthProvider } from "@/components/auth-provider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { RoleProtectedRoute } from "@/components/RoleProtectedRoute";
 import Dashboard from "./pages/Dashboard";
+import WorkerDashboard from "./pages/WorkerDashboard";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import PutawayTasks from "./pages/PutawayTasks";
 import PickingTasks from "./pages/PickingTasks";
@@ -36,7 +37,7 @@ const DashboardHome = () => {
   const { user } = useAuth();
 
   if (user?.role === 'putaway_worker') {
-    return <Navigate to="/dashboard/putaway-tasks" replace />;
+    return <Navigate to="/dashboard/worker" replace />;
   }
 
   if (user?.role === 'picker') {
@@ -58,11 +59,16 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Index />} />
+              <Route path="/unauthorized" element={<NotFound />} />
               <Route element={<ProtectedRoute />}>
                 <Route path="/dashboard" element={<DashboardLayout />}>
                   <Route index element={<DashboardHome />} />
                   <Route path="purchase-orders" element={<PurchaseOrders />} />
 
+                  <Route element={<RoleProtectedRoute allowedRoles={['putaway_worker']} />}>
+                    <Route path="worker" element={<WorkerDashboard />} />
+                  </Route>
 
                   <Route element={<RoleProtectedRoute allowedRoles={['putaway_worker', 'admin', 'manager']} />}>
                     <Route path="putaway" element={<PutawayTasks />} />

@@ -6,8 +6,22 @@ interface RoleProtectedRouteProps {
     allowedRoles: string[];
 }
 
+const normalizeRole = (role: string | undefined): string => {
+    if (!role) return "";
+
+    const normalized = role.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+    if (normalized === "worker" || normalized === "putawayworker") {
+        return "putaway_worker";
+    }
+
+    return normalized;
+};
+
 export const RoleProtectedRoute = ({ allowedRoles }: RoleProtectedRouteProps) => {
     const { user, isAuthenticated, isLoading } = useAuth();
+    const currentRole = normalizeRole(user?.role);
+    const normalizedAllowedRoles = allowedRoles.map((role) => normalizeRole(role));
 
     if (isLoading) {
         return (
@@ -21,7 +35,7 @@ export const RoleProtectedRoute = ({ allowedRoles }: RoleProtectedRouteProps) =>
         return <Navigate to="/" replace />;
     }
 
-    if (!allowedRoles.includes(user.role)) {
+    if (!normalizedAllowedRoles.includes(currentRole)) {
         return <Navigate to="/dashboard" replace />; // Redirect to dashboard if unauthorized
     }
 

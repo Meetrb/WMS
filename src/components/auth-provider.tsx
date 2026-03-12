@@ -11,6 +11,38 @@ export interface User {
     role: string; // Backend returns string, likely matching UserRole but let's keep it string to be safe or cast it
 }
 
+type UserApiResponse = User & {
+    user_role?: string;
+    userRole?: string;
+    role_name?: string;
+};
+
+const normalizeRole = (role: string | undefined): string => {
+    if (!role) return "";
+
+    const normalized = role.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+    if (normalized === "worker" || normalized === "putawayworker") {
+        return "putaway_worker";
+    }
+
+    return normalized;
+};
+
+const normalizeUser = (rawUser: UserApiResponse): User => {
+    const resolvedRole = normalizeRole(
+        rawUser.role || rawUser.user_role || rawUser.userRole || rawUser.role_name,
+    );
+
+    return {
+        id: String(rawUser.id ?? ""),
+        username: String(rawUser.username ?? ""),
+        full_name: rawUser.full_name,
+        email: rawUser.email,
+        role: resolvedRole,
+    };
+};
+
 interface AuthContextType {
     isAuthenticated: boolean;
     user: User | null;
@@ -32,7 +64,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (token) {
                 try {
                     const response = await api.get('/users/me');
-                    setUser(response.data);
+                    const currentUser = normalizeUser(response.data as UserApiResponse);
+                    setUser(currentUser);
+                    const userRole = currentUser.role || 'unknown';
+                    if (userRole && userRole !== 'unknown') {
+                        localStorage.setItem('role', userRole);
+                    }
                     setIsAuthenticated(true);
                 } catch (error) {
                     console.error("Failed to fetch user", error);
@@ -47,20 +84,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const login = async (username: string, password: string): Promise<boolean> => {
         try {
-            const formData = new FormData();
-            formData.append('username', username);
-            formData.append('password', password);
-
-            // Backend expects OAuth2 password request form data usually, or JSON?
-            // In auth.py: async def login(data: UserLogin...
-            // UserLogin is Pydantic model. So it expects JSON.
-            // Wait, standard OAuth2PasswordRequestForm expects form data.
-            // Let's check auth.py again.
-            // @router.post("/login", response_model=Token)
-            // async def login(data: UserLogin, ...):
-            // UserLogin is a Pydantic model (JSON body).
-            // So we send JSON.
-
             const response = await api.post('/auth/login', { username, password });
             const { access_token, refresh_token } = response.data;
 
@@ -69,7 +92,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
             // Fetch user details
             const userResponse = await api.get('/users/me');
-            setUser(userResponse.data);
+            const currentUser = normalizeUser(userResponse.data as UserApiResponse);
+            setUser(currentUser);
+            const userRole = currentUser.role || 'unknown';
+            if (userRole && userRole !== 'unknown') {
+                localStorage.setItem('role', userRole);
+            }
             setIsAuthenticated(true);
             return true;
         } catch (error) {
@@ -81,6 +109,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const logout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
+        localStorage.removeItem('role');
         setUser(null);
         setIsAuthenticated(false);
     };
