@@ -108,7 +108,7 @@ export const ZoneListModal: React.FC<ZoneListModalProps> = ({ open, setOpen, war
                                         {zones.map((zone) => (
                                             <TableRow
                                                 key={zone.id || zone.code}
-                                                className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                                className="cursor-pointer hover:bg-muted/30 transition-colors"
                                                 onClick={() => {
                                                     setSelectedZone(zone);
                                                     setDetailsOpen(true);
@@ -141,6 +141,7 @@ export const ZoneListModal: React.FC<ZoneListModalProps> = ({ open, setOpen, war
                     setOpen={setDetailsOpen}
                     warehouseId={warehouseId}
                     zone={selectedZone}
+                    onZoneUpdated={() => fetchZones()}
                 />
             )}
         </>

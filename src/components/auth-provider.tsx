@@ -1,7 +1,15 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import api from "../api/axios";
 
-export type UserRole = "admin" | "manager" | "grn_manager" | "putaway_worker" | "picker" | "packer";
+export type UserRole =
+    | "admin"
+    | "General manager"
+    | "GRN manager"
+    | "putaway worker"
+    | "replenishment worker"
+    | "picker"
+    | "inspection worker"
+    | "packer";
 
 export interface User {
     id: string;
@@ -20,13 +28,31 @@ type UserApiResponse = User & {
 const normalizeRole = (role: string | undefined): string => {
     if (!role) return "";
 
-    const normalized = role.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const trimmed = role.trim().toLowerCase();
 
-    if (normalized === "worker" || normalized === "putawayworker") {
-        return "putaway_worker";
+    if (trimmed === "admin") return "admin";
+    if (trimmed === "manager" || trimmed === "general manager" || trimmed === "general_manager") return "General manager";
+    if (trimmed === "grn manager" || trimmed === "grn_manager") return "GRN manager";
+    if (trimmed === "putaway worker" || trimmed === "worker" || trimmed === "putawayworker") return "putaway worker";
+    if (trimmed === "replenishment_worker" || trimmed === "replenishment worker") return "replenishment worker";
+    if (trimmed === "picker") return "picker";
+    if (trimmed === "packer") return "packer";
+    if (
+        trimmed === "inspection_worker" ||
+        trimmed === "inspectionworker" ||
+        trimmed === "inspection worker" ||
+        trimmed === "inspection_officer" ||
+        trimmed === "inspection-officer" ||
+        trimmed === "inspection officer" ||
+        trimmed === "qa_inspector" ||
+        trimmed === "qainspector" ||
+        trimmed === "qa-inspector" ||
+        trimmed === "qa inspector"
+    ) {
+        return "inspection worker";
     }
 
-    return normalized;
+    return role.trim();
 };
 
 const normalizeUser = (rawUser: UserApiResponse): User => {

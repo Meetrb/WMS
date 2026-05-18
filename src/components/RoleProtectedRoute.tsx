@@ -8,14 +8,7 @@ interface RoleProtectedRouteProps {
 
 const normalizeRole = (role: string | undefined): string => {
     if (!role) return "";
-
-    const normalized = role.trim().toLowerCase().replace(/[\s-]+/g, "_");
-
-    if (normalized === "worker" || normalized === "putawayworker") {
-        return "putaway_worker";
-    }
-
-    return normalized;
+    return role.trim().toLowerCase();
 };
 
 export const RoleProtectedRoute = ({ allowedRoles }: RoleProtectedRouteProps) => {

@@ -112,14 +112,51 @@ export const inboundService = {
         return response.data;
     },
 
+    getMyAssignedInspections: async (params?: { warehouse_id?: string; status?: string }) => {
+        const response = await api.get('/inbound/inspection/officer/my-assigned', { params });
+        return response.data;
+    },
+
+    getInspectionReport: async (inspectionId: string) => {
+        const response = await api.get(`/inbound/inspection/${encodeURIComponent(inspectionId)}/report`);
+        return response.data;
+    },
+
+    resolveInspection: async (
+        inspectionId: string,
+        payload: {
+            decisions: Array<{
+                inspection_detail_id: string;
+                action: 'ACCEPT' | 'RETURN';
+                accepted_quantity: number;
+                rejected_quantity: number;
+                notes?: string;
+            }>;
+            comments?: string;
+        }
+    ) => {
+        const response = await api.patch(`/inbound/inspection/${encodeURIComponent(inspectionId)}/resolve`, payload);
+        return response.data;
+    },
+
     createGrn: async (data: {
         inbound_shipment_id: string;
+        pallet_id?: string;
         items: Array<{
             asn_shipment_item_id: string;
             received_quantity: number;
             accepted_quantity: number;
             rejected_quantity: number;
+            pallet_barcode?: string;
+            reject_pallet_barcode?: string;
+            pallet_splits?: Array<{
+                pallet_barcode: string;
+                quantity: number;
+            }>;
+            accepted_pallet_id?: string;
+            rejected_pallet_id?: string;
         }>;
+        created_by?: string;
     }) => {
         const response = await api.post('/inbound/grn', data);
         console.log(response.data);

@@ -31,6 +31,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { formatDisplayDate } from "@/lib/date";
 import { toast } from "sonner";
 
 import { Switch } from "@/components/ui/switch";
@@ -44,6 +45,40 @@ interface User {
     is_active: boolean;
     created_at?: string;
 }
+
+const ROLE_ALIASES: Array<[string, string]> = [
+    ["admin", "admin"],
+    ["general manager", "General manager"],
+    ["general_manager", "General manager"],
+    ["grn manager", "GRN manager"],
+    ["grn_manager", "GRN manager"],
+    ["putaway worker", "putaway worker"],
+    ["putaway_worker", "putaway worker"],
+    ["replenishment worker", "replenishment worker"],
+    ["replenishment_worker", "replenishment worker"],
+    ["inspection worker", "inspection worker"],
+    ["inspection_worker", "inspection worker"],
+    ["inspection_officer", "inspection worker"],
+    ["inspection officer", "inspection worker"],
+    ["qa inspector", "inspection worker"],
+    ["qa_inspector", "inspection worker"],
+    ["picker", "picker"],
+    ["packer", "packer"],
+];
+
+const roleDisplayMap: Record<string, string> = Object.fromEntries(ROLE_ALIASES);
+
+const formatRoleLabel = (role: string): string => {
+    const key = String(role ?? "").trim().toLowerCase();
+    return roleDisplayMap[key] ?? role;
+};
+
+const mapRoleForApi = (role: string): string => {
+    const normalized = String(role ?? "").trim().toLowerCase();
+    const roleMap: Record<string, string> = Object.fromEntries(ROLE_ALIASES);
+
+    return roleMap[normalized] ?? role;
+};
 
 const Users = () => {
     const [users, setUsers] = useState<User[]>([]);
@@ -81,14 +116,23 @@ const Users = () => {
         setIsSubmitting(true);
 
         try {
-            await api.post("/auth/signup", newUser);
+            const payload = {
+                ...newUser,
+                role: mapRoleForApi(newUser.role),
+            };
+
+            await api.post("/users/", payload);
             toast.success("User created successfully");
             setIsDialogOpen(false);
             setNewUser({ username: "", email: "", password: "", full_name: "", role: "picker" }); // Reset form
             fetchUsers(); // Refresh list
         } catch (error: any) {
             console.error("Failed to create user", error);
-            toast.error(error.response?.data?.detail || "Failed to create user");
+            if (error?.code === "ERR_NETWORK") {
+                toast.error("Cannot reach backend API. Check VITE_API_BASE_URL and backend/CORS availability.");
+            } else {
+                toast.error(error.response?.data?.detail || "Failed to create user");
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -199,12 +243,14 @@ const Users = () => {
                                             <SelectValue placeholder="Select a role" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="admin">Admin</SelectItem>
-                                            <SelectItem value="manager">Manager</SelectItem>
-                                            <SelectItem value="picker">Picker</SelectItem>
-                                            <SelectItem value="packer">Packer</SelectItem>
-                                            <SelectItem value="putaway_worker">Putaway Worker</SelectItem>
-                                            <SelectItem value="grn_manager">GRN Manager</SelectItem>
+                                            <SelectItem value="admin">admin</SelectItem>
+                                            <SelectItem value="General manager">General manager</SelectItem>
+                                            <SelectItem value="GRN manager">GRN manager</SelectItem>
+                                            <SelectItem value="putaway worker">putaway worker</SelectItem>
+                                            <SelectItem value="replenishment worker">replenishment worker</SelectItem>
+                                            <SelectItem value="inspection worker">inspection worker</SelectItem>
+                                            <SelectItem value="picker">picker</SelectItem>
+                                            <SelectItem value="packer">packer</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -241,8 +287,8 @@ const Users = () => {
                                     <TableCell className="font-medium">{user.username}</TableCell>
                                     <TableCell>{user.email}</TableCell>
                                     <TableCell>
-                                        <Badge variant="outline" className="capitalize">
-                                            {user.role}
+                                        <Badge variant="outline">
+                                            {formatRoleLabel(user.role)}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
@@ -257,7 +303,7 @@ const Users = () => {
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right text-muted-foreground">
-                                        {user.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A"}
+                                        {user.created_at ? formatDisplayDate(user.created_at, "N/A") : "N/A"}
                                     </TableCell>
                                 </TableRow>
                             ))}

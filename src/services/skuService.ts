@@ -86,6 +86,11 @@ export const skuService = {
         return normalizeItem(response.data);
     },
 
+    getRawById: async (id: string | number) => {
+        const response = await api.get(`/items/${id}`);
+        return response.data;
+    },
+
     search: async (query: string) => {
         const response = await api.get('/items/', { params: { search: query } });
         const data = Array.isArray(response.data) ? response.data : (response.data?.items || []);

@@ -111,6 +111,11 @@
     @apply border-border;
   }
 
+  label.required-asterisk-label::after {
+    content: " *";
+    color: hsl(var(--destructive));
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
@@ -123,5 +128,16 @@
   h5,
   h6 {
     font-family: var(--font-heading);
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }

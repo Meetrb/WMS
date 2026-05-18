@@ -57,7 +57,7 @@ const Notifications = () => {
                     {mockNotifications.map((notification) => (
                         <div
                             key={notification.id}
-                            className="flex items-start gap-4 p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                            className="flex items-start gap-4 p-4 border rounded-lg hover:bg-muted/30 transition-colors"
                         >
                             <div className={`mt-1 p-2 rounded-full ${notification.type === "success" ? "bg-green-100 text-green-600" :
                                     notification.type === "warning" ? "bg-yellow-100 text-yellow-600" :

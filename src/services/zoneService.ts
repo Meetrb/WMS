@@ -33,5 +33,10 @@ export const zoneService = {
             params: { skip, limit }
         });
         return response.data;
+    },
+
+    updateZone: async (zoneId: string, data: Partial<ZoneData>) => {
+        const response = await api.patch(`/zones/${zoneId}`, data);
+        return response.data;
     }
 };

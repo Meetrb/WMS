@@ -1,9 +1,17 @@
 import axios, { AxiosError } from 'axios';
 import type { AxiosResponse } from 'axios';
 
+const resolveApiBaseUrl = (): string | undefined => {
+    const raw = String(import.meta.env.VITE_API_BASE_URL ?? '').trim();
+    if (!raw) return undefined;
+
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+    return withProtocol.replace(/\/+$/, '');
+};
+
 // 1. Create Base API Configuration
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL,
+    baseURL: resolveApiBaseUrl(),
     headers: {
         'Content-Type': 'application/json',
     },
@@ -12,8 +20,9 @@ const api = axios.create({
 // 2. Request Interceptor: Attach token for future token-based authentication
 api.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem('token');
-        if (token && config.headers) {
+        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+        if (token) {
+            config.headers = config.headers ?? {};
             config.headers.Authorization = `Bearer ${token}`;
         }
         return config;

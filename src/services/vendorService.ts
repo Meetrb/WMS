@@ -2,17 +2,18 @@ import api from './api';
 
 export const vendorService = {
     getAll: async () => {
-        const response = await api.get('/suppliers/');
+        const response = await api.get('/suppliers/', { params: { include_inactive: true } });
         return response.data;
     },
 
     getById: async (id: string | number) => {
         const response = await api.get(`/suppliers/${id}`);
+        console.log('getById response:', response.data);
         return response.data;
     },
 
     search: async (query: string) => {
-        const response = await api.get('/suppliers/', { params: { search: query } });
+        const response = await api.get('/suppliers/', { params: { search: query, include_inactive: true } });
         return Array.isArray(response.data) ? response.data : (response.data?.items || []);
     },
 
@@ -23,6 +24,11 @@ export const vendorService = {
 
     update: async (id: string | number, data: any) => {
         const response = await api.put(`/suppliers/${id}`, data);
+        return response.data;
+    },
+
+    patch: async (id: string | number, data: any) => {
+        const response = await api.patch(`/suppliers/${id}`, data);
         return response.data;
     },
 

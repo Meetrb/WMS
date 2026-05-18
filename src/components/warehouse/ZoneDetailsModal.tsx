@@ -21,18 +21,29 @@ import type { ZoneData } from "@/services/zoneService";
 import { Button } from "@/components/ui/button";
 import { AddBinModal } from "./AddBinModal";
 import { BinDetailsModal } from "./BinDetailsModal";
+import { EditZoneModal } from "./EditZoneModal";
+import { Edit } from "lucide-react";
 
 interface ZoneDetailsModalProps {
     open: boolean;
     setOpen: (open: boolean) => void;
     warehouseId: string;
     zone: ZoneData | null;
+    onZoneUpdated?: (updatedZone: ZoneData) => void;
 }
 
-export const ZoneDetailsModal: React.FC<ZoneDetailsModalProps> = ({ open, setOpen, warehouseId, zone }) => {
+const resolveBinKey = (bin: BinData) => String(bin.id || bin.code || "");
+
+export const ZoneDetailsModal: React.FC<ZoneDetailsModalProps> = ({ open, setOpen, warehouseId, zone: initialZone, onZoneUpdated }) => {
+    const [zone, setZone] = useState<ZoneData | null>(initialZone);
     const [bins, setBins] = useState<BinData[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [addBinOpen, setAddBinOpen] = useState(false);
+    const [editZoneOpen, setEditZoneOpen] = useState(false);
+
+    useEffect(() => {
+        setZone(initialZone);
+    }, [initialZone]);
 
     // Bin Details State
     const [selectedBin, setSelectedBin] = useState<BinData | null>(null);
@@ -44,7 +55,7 @@ export const ZoneDetailsModal: React.FC<ZoneDetailsModalProps> = ({ open, setOpe
 
         setIsLoading(true);
         try {
-            let data = await binsService.getBinsByZone(zoneIdentifier);
+            let data = await binsService.getBinsByZoneV2(zoneIdentifier);
             let binArray = Array.isArray(data) ? data : data?.items || [];
 
             // Fallback: If the API endpoint for getting bins by zone is returning nothing,
@@ -56,7 +67,7 @@ export const ZoneDetailsModal: React.FC<ZoneDetailsModalProps> = ({ open, setOpe
                     binArray = allArray.filter((b: BinData) =>
                         b.zone_id === zone?.id ||
                         b.zone_id === zone?.code ||
-                        b.warehouse_id === warehouseId // In case they genuinely want to see the whole list of bins here as a fallback
+                        b.warehouse_id === warehouseId
                     );
                 } catch (fallbackError) {
                     console.error("Fallback fetch failed:", fallbackError);
@@ -112,10 +123,21 @@ export const ZoneDetailsModal: React.FC<ZoneDetailsModalProps> = ({ open, setOpe
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
                         {/* Zone Info Summary */}
                         <div className="md:col-span-1 space-y-4">
-                            <h4 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
-                                <Info className="w-4 h-4" />
-                                Zone Information
-                            </h4>
+                            <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-bold uppercase text-muted-foreground flex items-center gap-2">
+                                    <Info className="w-4 h-4" />
+                                    Zone Information
+                                </h4>
+                                <Button 
+                                    variant="default" 
+                                    size="sm" 
+                                    onClick={() => setEditZoneOpen(true)} 
+                                    className="h-8 px-4 text-xs bg-primary hover:bg-primary/90 text-primary-foreground font-bold transition-all shadow-md active:scale-95"
+                                >
+                                    <Edit className="w-3.5 h-3.5 mr-1.5" />
+                                    Edit Zone
+                                </Button>
+                            </div>
                             <div className="bg-muted/30 border rounded-xl p-4 space-y-4">
                                 <div>
                                     <span className="text-xs text-muted-foreground uppercase font-semibold">Description</span>
@@ -183,7 +205,7 @@ export const ZoneDetailsModal: React.FC<ZoneDetailsModalProps> = ({ open, setOpe
                                                 {bins.map((bin) => (
                                                     <TableRow
                                                         key={bin.id || bin.code}
-                                                        className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                                        className="cursor-pointer hover:bg-muted/30 transition-colors"
                                                         onClick={() => {
                                                             setSelectedBin(bin);
                                                             setBinDetailsOpen(true);
@@ -234,6 +256,24 @@ export const ZoneDetailsModal: React.FC<ZoneDetailsModalProps> = ({ open, setOpe
                 setOpen={setBinDetailsOpen}
                 binData={selectedBin}
                 binId={selectedBin?.id}
+                onUpdated={(updatedBin) => {
+                    setSelectedBin(updatedBin);
+                    setBins((prev) => prev.map((bin) => (
+                        resolveBinKey(bin) === resolveBinKey(updatedBin) ? { ...bin, ...updatedBin } : bin
+                    )));
+                }}
+            />
+
+            <EditZoneModal
+                open={editZoneOpen}
+                setOpen={setEditZoneOpen}
+                zone={zone}
+                onSuccess={(updatedZone) => {
+                    setZone(updatedZone);
+                    if (onZoneUpdated) {
+                        onZoneUpdated(updatedZone);
+                    }
+                }}
             />
         </>
     );

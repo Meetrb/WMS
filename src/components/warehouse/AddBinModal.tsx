@@ -10,9 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { binsService } from "@/services/binsService";
 import type { BinData } from "@/services/binsService";
+import { BinTypeSelect } from "./BinTypeSelect";
 import { Loader2 } from "lucide-react";
 
 interface AddBinModalProps {
@@ -136,7 +138,12 @@ export const AddBinModal: React.FC<AddBinModalProps> = ({ open, setOpen, warehou
                 fifo_allowed: !!formData.fifo_allowed
             };
 
-            await binsService.createBin(payload as BinData);
+                // Use zone-specific endpoint if zoneId is available
+                if (zoneId) {
+                    await binsService.createBinInZone(zoneId, payload as BinData);
+                } else {
+                    await binsService.createBin(payload as BinData);
+                }
 
             toast.success("Bin created successfully");
             setOpen(false);
@@ -224,7 +231,11 @@ export const AddBinModal: React.FC<AddBinModalProps> = ({ open, setOpen, warehou
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="bin_type">Bin Type</Label>
-                            <Input id="bin_type" name="bin_type" value={formData.bin_type} onChange={handleInputChange} placeholder="e.g. STANDARD, BULK" />
+                            <BinTypeSelect 
+                                value={formData.bin_type || ""} 
+                                onValueChange={(value) => setFormData(prev => ({ ...prev, bin_type: value }))}
+                                id="bin_type"
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="pick_priority">Pick Priority (1-10)</Label>

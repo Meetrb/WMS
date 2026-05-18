@@ -14,23 +14,37 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { dashboardService } from "@/services/dashboardService";
 
 const DashboardLayout = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const role = String(user?.role ?? "").toLowerCase();
+
+    // Fetch notifications summary for the badge count
+    const notificationsQuery = useQuery({
+        queryKey: ["dashboard", "notifications-summary"],
+        queryFn: dashboardService.getNotificationsSummary,
+        refetchInterval: 30000, // Refetch every 30 seconds
+    });
 
     useEffect(() => {
-        if (user?.role === "grn_manager" && location.pathname === "/dashboard") {
+        if (role === "grn manager" && location.pathname === "/dashboard") {
             navigate("/dashboard/purchase-orders");
         }
-    }, [user, navigate]);
+        if (role === "inspection worker" && location.pathname === "/dashboard") {
+            navigate("/dashboard/purchase-orders");
+        }
+    }, [role, navigate]);
 
     const handleLogout = () => {
         logout();
         navigate("/");
     };
+
+    const unreadCount = notificationsQuery.data?.unread_count ?? 0;
 
     return (
         <SidebarProvider>
@@ -56,9 +70,13 @@ const DashboardLayout = () => {
                             <ThemeToggle />
 
                             <Link to="/dashboard/notifications">
-                                <Button variant="ghost" size="icon" className="relative rounded-lg hover:bg-secondary">
+                                <Button variant="ghost" size="icon" className="relative rounded-lg hover:bg-muted/30">
                                     <Bell className="w-5 h-5 text-muted-foreground" />
-                                    <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full" />
+                                    {unreadCount > 0 && (
+                                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-primary text-[10px] font-bold text-primary-foreground rounded-full border-2 border-background px-1">
+                                            {unreadCount > 99 ? '99+' : unreadCount}
+                                        </span>
+                                    )}
                                 </Button>
                             </Link>
 

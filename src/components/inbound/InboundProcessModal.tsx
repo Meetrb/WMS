@@ -4,7 +4,7 @@
  * Shows complete inbound shipment details and a GRN creation form.
  * Backend response uses camelCase; items live in shipments[].items[].
  */
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -13,16 +13,17 @@ import {
     DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-    FileText, Truck, Package, Building2,
+    FileText, Truck, Building2,
     Loader2, ClipboardCheck, CheckCircle2, AlertCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { inboundService } from "@/services/inboundService";
+import { palletService, type PalletData } from "@/services/palletService";
 import { useAuth } from "@/components/auth-provider";
+import { formatDisplayDate } from "@/lib/date";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ interface InboundProcessModalProps {
     initialData?: any;   // normalised InboundDetail (for display UI)
     rawData?: any;       // raw API response — SINGLE SOURCE OF TRUTH for inboundId and asnShipmentItemId
     onSuccess?: () => void;
+    allowGrnCreation?: boolean;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -57,7 +59,17 @@ interface GrnRow {
     received_quantity: number;
     accepted_quantity: number;
     rejected_quantity: number;
+    shortage_note?: string;
 }
+
+const extractPallets = (payload: any): PalletData[] => {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (Array.isArray(payload?.results)) return payload.results;
+    if (Array.isArray(payload?.pallets)) return payload.pallets;
+    return [];
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +78,15 @@ const isUUID = (v: string) =>
 
 const fmt = (d?: string | null) => {
     if (!d || d === 'N/A' || d === 'undefined') return '—';
-    try { return new Date(d).toLocaleDateString(); } catch { return d; }
+    return formatDisplayDate(d, '—');
+};
+
+const firstText = (...values: Array<string | null | undefined>) => {
+    for (const value of values) {
+        const text = String(value ?? '').trim();
+        if (text && text !== 'N/A' && text !== 'undefined' && text !== '—') return text;
+    }
+    return '—';
 };
 
 const getStatusColor = (status?: string) => {
@@ -76,6 +96,67 @@ const getStatusColor = (status?: string) => {
     if (s.includes('transit')) return 'bg-amber-500 text-white';
     if (s.includes('overdue')) return 'bg-destructive text-white';
     return 'bg-secondary text-secondary-foreground';
+};
+
+const normalizeLookupValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const normalizeStatus = (value: unknown) => String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+const isCompletedStatus = (value: unknown) => {
+    const status = normalizeStatus(value);
+    return ['completed', 'complete', 'done', 'closed', 'finalized', 'generated', 'posted', 'grn_completed'].includes(status);
+};
+
+const palletMatchesWarehouse = (pallet: PalletData, warehouseId?: string, warehouseCode?: string) => {
+    if (!warehouseId && !warehouseCode) return true;
+
+    const palletValues = [
+        pallet.warehouse_id,
+        pallet.warehouse_code,
+        pallet.warehouse?.id,
+        pallet.warehouse?.code,
+        (pallet as any)?.warehouseId,
+        (pallet as any)?.warehouseCode,
+    ].map(normalizeLookupValue).filter(Boolean);
+
+    const expectedValues = [warehouseId, warehouseCode].map(normalizeLookupValue).filter(Boolean);
+    return expectedValues.some((value) => palletValues.includes(value));
+};
+
+const palletMatchesSupplier = (
+    pallet: PalletData,
+    supplierId?: string,
+    supplierCode?: string,
+    supplierName?: string
+) => {
+    if (!supplierId && !supplierCode && !supplierName) return true;
+
+    const palletValues = [
+        (pallet as any)?.supplier_id,
+        (pallet as any)?.supplierId,
+        (pallet as any)?.supplier_code,
+        (pallet as any)?.supplierCode,
+        (pallet as any)?.supplier_name,
+        (pallet as any)?.supplierName,
+        (pallet as any)?.supplier?.id,
+        (pallet as any)?.supplier?.code,
+        (pallet as any)?.supplier?.name,
+        (pallet as any)?.vendor_id,
+        (pallet as any)?.vendorId,
+        (pallet as any)?.vendor_code,
+        (pallet as any)?.vendorCode,
+        (pallet as any)?.vendor_name,
+        (pallet as any)?.vendorName,
+        (pallet as any)?.vendor?.id,
+        (pallet as any)?.vendor?.code,
+        (pallet as any)?.vendor?.name,
+    ].map(normalizeLookupValue).filter(Boolean);
+
+    // If pallet payload carries no supplier information, exclude it when supplier context exists.
+    if (palletValues.length === 0) return false;
+
+    const expectedValues = [supplierId, supplierCode, supplierName].map(normalizeLookupValue).filter(Boolean);
+    return expectedValues.some((value) => palletValues.includes(value));
 };
 
 /** Pull all items from the raw API response, handling both camelCase and snake_case shapes */
@@ -141,6 +222,7 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
     initialData,
     rawData,       // raw API response — always preferred for GRN UUIDs
     onSuccess,
+    allowGrnCreation = true,
 }) => {
     const { user } = useAuth();
 
@@ -156,6 +238,39 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
     const [grnRows, setGrnRows] = useState<Record<string, GrnRow>>({});
     const [isSubmittingGrn, setIsSubmittingGrn] = useState(false);
     const [grnCreated, setGrnCreated] = useState(false);
+    const [availablePallets, setAvailablePallets] = useState<PalletData[]>([]);
+    const [isLoadingPallets, setIsLoadingPallets] = useState(false);
+    const [palletNumber, setPalletNumber] = useState("");
+    const [commonPalletId, setCommonPalletId] = useState("");
+
+    const handleNumberKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        // 1. Allow control keys (backspace, delete, tab, arrows, etc.)
+        const isControlKey = [
+            'Backspace', 'Delete', 'Tab', 'Enter', 'Escape',
+            'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+            'Home', 'End'
+        ].includes(e.key);
+
+        // 2. Allow CMD/CTRL shortcuts (A, C, V, X)
+        const isShortcut = (e.ctrlKey || e.metaKey) && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase());
+
+        if (isControlKey || isShortcut) return;
+
+        // 3. ONLY allow numeric digits 0-9
+        // This explicitly blocks +, -, ., e, etc.
+        if (!/^[0-9]$/.test(e.key)) {
+            e.preventDefault();
+        }
+    };
+
+    const handleNumberPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+        const pasteData = e.clipboardData.getData('text');
+        // Let it paste, but our onChange will strip non-numeric characters instantly
+        // This provides the "Silent Sanitization" UX requested
+        if (!/^\d+$/.test(pasteData)) {
+            // No toast/alert as per requirements - silently sanitize via onChange
+        }
+    };
 
     // ── Open / close lifecycle ─────────────────────────────────────────────
     useEffect(() => {
@@ -165,6 +280,9 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
             setGrnRows({});
             setGrnCreated(false);
             setResolvedInboundId(null);
+            setAvailablePallets([]);
+            setPalletNumber("");
+            setCommonPalletId("");
             return;
         }
 
@@ -276,33 +394,90 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
 
     // ── Derived display values ─────────────────────────────────────────────
     // Support both camelCase (backend) and snake_case (normalised initialData)
-    const d = raw || initialData;
+    const d = raw || initialData || rawData;
 
-    const displayId = d?.inboundId || d?.id || shipmentId || '—';
-    const displayAsn = d?.asnNumber || d?.asn_number || '—';
-    const displayStatus = d?.status || '—';
-    const displayAsnDate = d?.asnDate || d?.asn_date;
-    const displayExpected = d?.expectedDate || d?.expected_arrival_date || d?.expected_date;
-    const displayArrival = d?.actualArrivalDate || d?.actual_arrival_date;
+    const shipmentSource = Array.isArray(d?.shipments) ? d.shipments[0] : null;
+
+    const displayId = firstText(d?.inboundId, d?.id, shipmentId);
+    const displayAsn = firstText(d?.asnNumber, d?.asn_number, shipmentSource?.asnNumber, shipmentSource?.asn_number);
+    const displayStatus = firstText(d?.status, d?.grnStatus, d?.grn_status);
+    const displayAsnDate = d?.asnDate || d?.asn_date || null;
+    const displayExpected = d?.expectedDate || d?.expected_arrival_date || d?.expected_date || null;
+    const displayArrival = d?.actualArrivalDate || d?.actual_arrival_date || null;
 
     // Supplier
-    const displaySupplierName = d?.supplierName || d?.supplier_name || d?.supplier?.name || '—';
-    const displaySupplierCode = d?.supplierCode || d?.supplier_code || d?.supplier?.code || '—';
+    const displaySupplierName = firstText(
+        d?.supplierName,
+        d?.supplier_name,
+        d?.supplier?.name,
+        d?.supplier?.full_name,
+        shipmentSource?.supplierName,
+        shipmentSource?.supplier_name,
+        d?.supplier?.code ? undefined : undefined
+    );
+    const displaySupplierCode = firstText(
+        d?.supplierCode,
+        d?.supplier_code,
+        d?.supplier?.code,
+        shipmentSource?.supplierCode,
+        shipmentSource?.supplier_code
+    );
     const displayGstin = d?.supplierGstin || d?.supplier_gstin || null;
+    const currentSupplierId = String(d?.supplier?.id || d?.supplier_id || '').trim() || undefined;
+    const currentSupplierCode = String(d?.supplierCode || d?.supplier_code || d?.supplier?.code || '').trim() || undefined;
+    const currentSupplierName = String(d?.supplierName || d?.supplier_name || d?.supplier?.name || '').trim() || undefined;
 
     // Logistics
-    const displayVehicle = d?.vehicleNumber || d?.vehicle_number || '—';
-    const displayDriver = d?.driverName || d?.driver_name || '—';
-    const displayPhone = d?.driverPhone || d?.driver_phone || '—';
+    const displayVehicle = firstText(d?.vehicleNumber, d?.vehicle_number, shipmentSource?.vehicleNumber, shipmentSource?.vehicle_number);
+    const displayDriver = firstText(d?.driverName, d?.driver_name, shipmentSource?.driverName, shipmentSource?.driver_name);
+    const displayPhone = firstText(d?.driverPhone, d?.driver_phone, shipmentSource?.driverPhone, shipmentSource?.driver_phone);
 
     // Warehouse
-    const displayWarehouse = d?.warehouseName || d?.warehouse_name || d?.warehouse?.name || '—';
-    const displayDock = d?.receivingDock || d?.dock_number || '—';
+    const displayWarehouse = firstText(
+        d?.warehouseName,
+        d?.warehouse_name,
+        d?.warehouse?.name,
+        d?.warehouse?.code,
+        d?.warehouse_code,
+        d?.warehouseCode
+    );
+    const currentWarehouseId = String(
+        d?.warehouse?.id ||
+        d?.warehouse_id ||
+        d?.warehouseId ||
+        (typeof d?.warehouse === 'string' && isUUID(d.warehouse) ? d.warehouse : '') ||
+        ''
+    ).trim() || undefined;
+    const currentWarehouseCode = String(
+        d?.warehouseCode ||
+        d?.warehouse_code ||
+        d?.warehouse?.code ||
+        (typeof d?.warehouse === 'string' && !isUUID(d.warehouse) ? d.warehouse : '') ||
+        ''
+    ).trim() || undefined;
+    const displayDock = firstText(
+        d?.receivingDock,
+        d?.receiving_dock,
+        d?.dock_number,
+        d?.dockNumber,
+        d?.dock_name,
+        d?.dockName,
+        shipmentSource?.receivingDock,
+        shipmentSource?.receiving_dock,
+        shipmentSource?.dock_number,
+        shipmentSource?.dockNumber,
+        shipmentSource?.dock_name,
+        shipmentSource?.dockName
+    );
+    const isGrnManager = normalizeLookupValue(user?.role) === 'grn manager';
 
     // GRN
-    const displayGrnNumber = d?.grnNumber || d?.grn?.number || '—';
-    const displayGrnStatus = d?.grnStatus || d?.grn?.status || '—';
+    const displayGrnNumber = firstText(d?.grnNumber, d?.grn_number, d?.grn?.number, d?.grn?.grn_number);
+    const displayGrnStatus = firstText(d?.grnStatus, d?.grn_status, d?.grn?.status);
+    const grnIsCompleted = isCompletedStatus(displayGrnStatus);
     const grnIsGenerated = !!(d?.grn?.is_generated) || grnCreated;
+    const grnCreationLocked = grnIsGenerated || grnIsCompleted;
+    const canCreateGrn = allowGrnCreation && !grnCreationLocked;
 
     // Pull items from selected ASN response: shipments[].items[]
     const items: ShipmentItem[] = raw ? extractItems(raw) : (initialData?.items || []).map((i: any) => ({
@@ -321,7 +496,46 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
 
     // ── GRN form helpers ───────────────────────────────────────────────────
 
+    const fetchAvailablePallets = async () => {
+        setIsLoadingPallets(true);
+        try {
+            // GRN managers must always be warehouse-scoped; never show global pallet pool.
+            if (isGrnManager && !currentWarehouseId && !currentWarehouseCode) {
+                setAvailablePallets([]);
+                toast.error('Warehouse context missing for this shipment. Cannot load pallets.');
+                return;
+            }
+
+            const response = await palletService.getAll(0, 500, {
+                warehouse_id: currentWarehouseId,
+                warehouse_code: currentWarehouseCode,
+                supplier_id: currentSupplierId,
+                supplier_code: currentSupplierCode,
+            });
+            const pallets = extractPallets(response).filter((pallet) => {
+                const matchesWarehouse = palletMatchesWarehouse(pallet, currentWarehouseId, currentWarehouseCode);
+                const matchesSupplier = palletMatchesSupplier(pallet, currentSupplierId, currentSupplierCode, currentSupplierName);
+                if (isGrnManager) {
+                    return matchesWarehouse && matchesSupplier;
+                }
+                return matchesWarehouse && matchesSupplier;
+            });
+            setAvailablePallets(pallets);
+        } catch (error) {
+            console.error('Failed to fetch pallets for GRN:', error);
+            setAvailablePallets([]);
+            toast.error('Failed to load pallet suggestions');
+        } finally {
+            setIsLoadingPallets(false);
+        }
+    };
+
     const openGrnForm = () => {
+        if (grnCreationLocked) {
+            toast.error('GRN is already completed for this inbound shipment.');
+            return;
+        }
+
         const rows: Record<string, GrnRow> = {};
         items.forEach(item => {
             rows[item.asnShipmentItemId] = {
@@ -329,41 +543,108 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
                 received_quantity: item.receivedQuantity || item.expectedQuantity,
                 accepted_quantity: item.acceptedQuantity || item.receivedQuantity || item.expectedQuantity,
                 rejected_quantity: item.rejectedQuantity || 0,
+                shortage_note: '',
             };
         });
         setGrnRows(rows);
+        setPalletNumber('');
+        setCommonPalletId('');
         setShowGrnForm(true);
+        void fetchAvailablePallets();
     };
 
-    const updateGrnRow = (id: string, field: keyof Omit<GrnRow, 'asnShipmentItemId'>, value: number) => {
+    const updateGrnRow = (id: string, field: string, value: number | string) => {
         setGrnRows(prev => {
             const row = { ...prev[id] };
-            row[field] = value;
+            const item = items.find(i => i.asnShipmentItemId === id);
+            const expected = Number(item?.expectedQuantity || 0);
 
-            // Auto-correct: if accepted + rejected > received, cap the other
+            if (field === 'received_quantity') {
+                const newReceived = Math.trunc(Number(value) || 0);
+                if (newReceived > expected) {
+                    toast.error(`Received quantity cannot exceed Expected (${expected}).`);
+                    return prev;
+                }
+            }
+
             if (field === 'accepted_quantity') {
-                const maxRejected = Math.max(0, row.received_quantity - value);
-                if (row.rejected_quantity > maxRejected) row.rejected_quantity = maxRejected;
+                const newAccepted = Math.trunc(Number(value) || 0);
+                if (newAccepted > row.received_quantity) {
+                    toast.error(`Accepted quantity cannot exceed Received (${row.received_quantity}).`);
+                    return prev;
+                }
             }
+
+            (row as any)[field] = value;
+
+            if (field === 'received_quantity') {
+                // When received is changed, reset accepted and rejected to 0
+                row.accepted_quantity = 0;
+                row.rejected_quantity = 0;
+            }
+
+            if (field === 'accepted_quantity') {
+                // When accepted is changed, rejected = received - accepted
+                const newAccepted = Math.trunc(Number(value) || 0);
+                row.rejected_quantity = Math.max(0, row.received_quantity - newAccepted);
+            }
+
             if (field === 'rejected_quantity') {
-                const maxAccepted = Math.max(0, row.received_quantity - value);
-                if (row.accepted_quantity > maxAccepted) row.accepted_quantity = maxAccepted;
+                // When rejected is changed, accepted = received - rejected
+                const newRejected = Math.trunc(Number(value) || 0);
+                row.accepted_quantity = Math.max(0, row.received_quantity - newRejected);
             }
+
             return { ...prev, [id]: row };
         });
     };
 
     const validateGrn = (): boolean => {
         for (const row of Object.values(grnRows)) {
+            const item = items.find((i) => i.asnShipmentItemId === row.asnShipmentItemId);
+            const expectedQty = Number(item?.expectedQuantity || 0);
+
+            if (row.received_quantity > expectedQty) {
+                toast.error('Received quantity cannot exceed Expected quantity');
+                return false;
+            }
+
+            if (row.accepted_quantity > row.received_quantity) {
+                toast.error('Accepted quantity cannot exceed Received quantity');
+                return false;
+            }
+
             if (row.accepted_quantity + row.rejected_quantity > row.received_quantity) {
                 toast.error('Accepted + Rejected quantities cannot exceed Received quantity');
                 return false;
             }
+
+            // For GRN manager: if received quantity is lower than expected quantity, shortage note is mandatory.
+            if (isGrnManager && row.received_quantity < expectedQty && !String(row.shortage_note || '').trim()) {
+                toast.error(`Shortage note is required for SKU ${item?.sku || row.asnShipmentItemId} when received is lower than expected.`);
+                return false;
+            }
+
         }
+
+        const hasAnyQuantity = Object.values(grnRows).some(
+            (row) => row.accepted_quantity > 0 || row.rejected_quantity > 0,
+        );
+
+        if (hasAnyQuantity && !selectedPallet) {
+            toast.error('Please select one common pallet for all GRN items');
+            return false;
+        }
+
         return true;
     };
 
     const handleGrnSubmit = async () => {
+        if (grnCreationLocked) {
+            toast.error('GRN is already completed for this inbound shipment.');
+            return;
+        }
+
         if (!validateGrn()) return;
 
         // Priority: resolvedInboundId (fetched via ASN lookup) → rawData → raw → initialData
@@ -383,19 +664,34 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
 
         setIsSubmittingGrn(true);
         try {
-            const payload = {
-                inbound_shipment_id: inboundId,
-                items: Object.values(grnRows).map(r => ({
+            const payloadItems = Object.values(grnRows).map((r) => {
+                return {
                     asn_shipment_item_id: r.asnShipmentItemId,
                     received_quantity: r.received_quantity,
                     accepted_quantity: r.accepted_quantity,
                     rejected_quantity: r.rejected_quantity,
-                })),
+                    shortage_note: String(r.shortage_note || '').trim() || null,
+                    pallet_barcode: selectedPallet?.pallet_code || selectedPallet?.barcode || null,
+                    reject_pallet_barcode: selectedPallet?.pallet_code || selectedPallet?.barcode || null,
+                };
+            });
+
+            const payload = isGrnManager ? {
+                // GRN manager payload format requested by user
+                inbound_shipment_id: inboundId,
+                items: payloadItems,
+            } : {
+                inbound_shipment_id: inboundId,
+                items: payloadItems,
                 created_by: user?.id || user?.email || 'admin',
             };
+            const rejectedQtyTotal = payloadItems.reduce((sum, item) => sum + Number(item.rejected_quantity || 0), 0);
             console.log('📦 GRN Payload:', JSON.stringify(payload, null, 2));
             await inboundService.createGrn(payload);
-            toast.success('GRN created successfully!');
+            toast.success('GRN completed. Putaway tasks generated successfully.');
+            if (rejectedQtyTotal > 0) {
+                toast.info('Rejected quantities are logged. Inspection will be created after rejected putaway completion.');
+            }
             setGrnCreated(true);
             setShowGrnForm(false);
             onSuccess?.();
@@ -407,6 +703,19 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
             setIsSubmittingGrn(false);
         }
     };
+
+    const palletSuggestions = (() => {
+        const query = normalizeLookupValue(palletNumber);
+        const matchingPallets = availablePallets.filter((pallet) => {
+            if (!query) return true;
+            return normalizeLookupValue(pallet.pallet_code).includes(query)
+                || normalizeLookupValue(pallet.barcode).includes(query);
+        });
+        return matchingPallets.slice(0, 8);
+    })();
+
+    const selectedPallet = availablePallets.find((pallet) => String(pallet.id || '') === commonPalletId)
+        || availablePallets.find((pallet) => normalizeLookupValue(pallet.pallet_code) === normalizeLookupValue(palletNumber));
 
     // ── Render ─────────────────────────────────────────────────────────────
     return (
@@ -432,9 +741,6 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
                                             {displayStatus}
                                         </span>
                                     )}
-                                    {displayId && displayId !== '—' && (
-                                        <span className="text-xs text-muted-foreground">ID: {displayId}</span>
-                                    )}
                                 </div>
                             </DialogDescription>
                         </DialogHeader>
@@ -453,7 +759,6 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
                                 {/* ── 1. Header Info ───────────────────── */}
                                 <Section title="Inbound Information" icon={<FileText className="h-4 w-4" />}>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                        <InfoRow label="Shipment ID" value={String(displayId)} />
                                         <InfoRow label="ASN Number" value={displayAsn} />
                                         <InfoRow label="Status" value={displayStatus} />
                                         <InfoRow label="Arrival Date" value={fmt(displayArrival)} />
@@ -464,10 +769,9 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
 
                                 {/* ── 2. Supplier ──────────────────────── */}
                                 <Section title="Supplier" icon={<Building2 className="h-4 w-4" />}>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
                                         <InfoRow label="Supplier Name" value={displaySupplierName} />
                                         <InfoRow label="Supplier Code" value={displaySupplierCode} />
-                                        <InfoRow label="GSTIN" value={displayGstin} />
                                     </div>
                                 </Section>
 
@@ -504,76 +808,6 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
                                     </div>
                                 </Section>
 
-                                {/* ── 6. Shipment Items Table ───────────── */}
-                                <Section title="Shipment Items" icon={<Package className="h-4 w-4" />}>
-                                    <div className="border rounded-md overflow-hidden">
-                                        <Table>
-                                            <TableHeader className="bg-muted/50">
-                                                <TableRow>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider">SKU</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider">Description</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider">Barcode</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider text-right">Expected</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider text-right">Received</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider text-right">Accepted</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider text-right">Rejected</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider">Unit</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider">Batch</TableHead>
-                                                    <TableHead className="text-xs font-bold uppercase tracking-wider">Expiry</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {items.length === 0 ? (
-                                                    <TableRow>
-                                                        <TableCell colSpan={10} className="text-center text-muted-foreground py-10 text-sm">
-                                                            <div className="flex flex-col items-center gap-2">
-                                                                <Package className="h-8 w-8 opacity-20" />
-                                                                No shipment items found.
-                                                            </div>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ) : (
-                                                    items.map((item, idx) => (
-                                                        <TableRow key={item.asnShipmentItemId || idx}>
-                                                            <TableCell className="font-mono text-primary font-bold text-xs">{item.sku}</TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground max-w-[160px] truncate">{item.description}</TableCell>
-                                                            <TableCell className="font-mono text-xs text-muted-foreground">{item.barcode || '—'}</TableCell>
-                                                            <TableCell className="text-right font-bold text-sm">{item.expectedQuantity}</TableCell>
-                                                            <TableCell className="text-right text-sm">{item.receivedQuantity || '—'}</TableCell>
-                                                            <TableCell className="text-right text-sm text-green-600 font-medium">{item.acceptedQuantity || '—'}</TableCell>
-                                                            <TableCell className="text-right text-sm text-destructive font-medium">{item.rejectedQuantity || '—'}</TableCell>
-                                                            <TableCell className="text-xs uppercase text-muted-foreground">{item.unit}</TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground">{item.batchNo || '—'}</TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground">{fmt(item.expiryDate) || '—'}</TableCell>
-                                                        </TableRow>
-                                                    ))
-                                                )}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-
-                                    {/* Create GRN Button */}
-                                    <div className="flex justify-end pt-4">
-                                        <Button
-                                            onClick={openGrnForm}
-                                            disabled={grnIsGenerated || isSubmittingGrn}
-                                            className="gap-2 px-6 bg-green-600 hover:bg-green-700 disabled:opacity-50"
-                                        >
-                                            {grnIsGenerated ? (
-                                                <>
-                                                    <CheckCircle2 className="h-4 w-4" />
-                                                    GRN Already Created
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <ClipboardCheck className="h-4 w-4" />
-                                                    Create GRN
-                                                </>
-                                            )}
-                                        </Button>
-                                    </div>
-                                </Section>
-
                             </>
                         )}
                     </div>
@@ -581,104 +815,233 @@ export const InboundProcessModal: React.FC<InboundProcessModalProps> = ({
             </Dialog>
 
             {/* ── GRN Creation Dialog ──────────────────────────────── */}
-            <Dialog open={showGrnForm} onOpenChange={setShowGrnForm}>
-                <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-                    <div className="p-6 pb-4 border-b bg-background shadow-sm shrink-0">
-                        <DialogHeader>
-                            <DialogTitle className="flex items-center gap-2 text-xl font-heading">
-                                <ClipboardCheck className="h-5 w-5 text-primary" /> Create GRN
-                            </DialogTitle>
-                            <DialogDescription className="flex items-center justify-between">
-                                <span>Enter received, accepted, and rejected quantities for each item.</span>
-                                <span className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-full border border-amber-200 dark:border-amber-800">
-                                    <AlertCircle className="h-3 w-3" />
-                                    Accepted + Rejected ≤ Received
-                                </span>
-                            </DialogDescription>
-                        </DialogHeader>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-6 bg-background/50">
-                        <div className="border rounded-md overflow-hidden bg-background">
-                            <Table>
-                                <TableHeader className="bg-muted/70">
-                                    <TableRow>
-                                        <TableHead className="text-xs font-bold uppercase tracking-wider">Item</TableHead>
-                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-right">Expected</TableHead>
-                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-right w-[130px]">Received *</TableHead>
-                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-right w-[130px]">Accepted *</TableHead>
-                                        <TableHead className="text-xs font-bold uppercase tracking-wider text-right w-[130px]">Rejected</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {items.map((item) => {
-                                        const row = grnRows[item.asnShipmentItemId] || {
-                                            received_quantity: item.expectedQuantity,
-                                            accepted_quantity: item.expectedQuantity,
-                                            rejected_quantity: 0,
-                                        };
-                                        const overLimit = (row.accepted_quantity + row.rejected_quantity) > row.received_quantity;
-
-                                        return (
-                                            <TableRow key={item.asnShipmentItemId} className={overLimit ? 'bg-destructive/5' : ''}>
-                                                <TableCell>
-                                                    <div className="flex flex-col">
-                                                        <span className="font-mono text-primary font-bold text-xs">{item.sku}</span>
-                                                        <span className="text-xs text-muted-foreground truncate max-w-[180px]">{item.description}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right font-bold text-muted-foreground">{item.expectedQuantity}</TableCell>
-
-                                                {/* Received */}
-                                                <TableCell>
-                                                    <Input
-                                                        type="number" min="0"
-                                                        className="h-8 text-right font-mono text-sm"
-                                                        value={row.received_quantity}
-                                                        onChange={e => updateGrnRow(item.asnShipmentItemId, 'received_quantity', Number(e.target.value))}
-                                                        disabled={isSubmittingGrn}
-                                                    />
-                                                </TableCell>
-
-                                                {/* Accepted */}
-                                                <TableCell>
-                                                    <Input
-                                                        type="number" min="0"
-                                                        className={`h-8 text-right font-mono text-sm ${overLimit ? 'border-destructive' : ''}`}
-                                                        value={row.accepted_quantity}
-                                                        onChange={e => updateGrnRow(item.asnShipmentItemId, 'accepted_quantity', Number(e.target.value))}
-                                                        disabled={isSubmittingGrn}
-                                                    />
-                                                </TableCell>
-
-                                                {/* Rejected */}
-                                                <TableCell>
-                                                    <Input
-                                                        type="number" min="0"
-                                                        className={`h-8 text-right font-mono text-sm ${overLimit ? 'border-destructive' : ''}`}
-                                                        value={row.rejected_quantity}
-                                                        onChange={e => updateGrnRow(item.asnShipmentItemId, 'rejected_quantity', Number(e.target.value))}
-                                                        disabled={isSubmittingGrn}
-                                                    />
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
+            {allowGrnCreation && (
+                <Dialog open={showGrnForm} onOpenChange={setShowGrnForm}>
+                    <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+                        <div className="p-6 pb-4 border-b bg-background shadow-sm shrink-0">
+                            <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2 text-xl font-heading">
+                                    <ClipboardCheck className="h-5 w-5 text-primary" /> Create GRN with Pallet Tracking
+                                </DialogTitle>
+                                <DialogDescription>
+                                    <div className="space-y-2">
+                                        <p>Enter received, accepted, and rejected quantities for each item. Use one common pallet selection for all items.</p>
+                                        <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-full border border-amber-200 dark:border-amber-800 w-fit">
+                                            <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                                            Accepted + Rejected ≤ Received | One common pallet selection required
+                                        </div>
+                                    </div>
+                                </DialogDescription>
+                            </DialogHeader>
                         </div>
-                    </div>
 
-                    <div className="flex justify-between items-center p-6 border-t bg-background shrink-0">
-                        <Button variant="outline" onClick={() => setShowGrnForm(false)} disabled={isSubmittingGrn}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleGrnSubmit} disabled={isSubmittingGrn} className="gap-2 px-8 bg-green-600 hover:bg-green-700">
-                            {isSubmittingGrn ? <><Loader2 className="w-4 h-4 animate-spin" />Generating... </> : <><ClipboardCheck className="w-4 h-4" />Submit GRN </>}
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
+                        <div className="flex-1 overflow-y-auto p-6 bg-background/50">
+                            <div className="mb-6 rounded-lg border bg-background p-4">
+                                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                                    <div className="space-y-2">
+                                        <div>
+                                            <p className="text-sm font-semibold">Pallet Number</p>
+                                            <p className="text-xs text-muted-foreground">Start typing a pallet code or barcode to see matching available pallets.</p>
+                                        </div>
+                                        <Input
+                                            list="grn-pallet-suggestions"
+                                            value={palletNumber}
+                                            onChange={(e) => {
+                                                const nextValue = e.target.value;
+                                                setPalletNumber(nextValue);
+                                                const exactMatch = availablePallets.find(
+                                                    (pallet) => normalizeLookupValue(pallet.pallet_code) === normalizeLookupValue(nextValue)
+                                                        || normalizeLookupValue(pallet.barcode) === normalizeLookupValue(nextValue),
+                                                );
+                                                setCommonPalletId(exactMatch?.id || '');
+                                            }}
+                                            placeholder="Search pallet number"
+                                            disabled={isSubmittingGrn || isLoadingPallets}
+                                        />
+                                        <datalist id="grn-pallet-suggestions">
+                                            {palletSuggestions.map((pallet) => (
+                                                <option key={pallet.id || pallet.pallet_code} value={pallet.pallet_code}>
+                                                    {pallet.barcode || pallet.status || ''}
+                                                </option>
+                                            ))}
+                                        </datalist>
+                                        {palletNumber.trim() !== '' && palletSuggestions.length > 0 && (
+                                            <div className="flex flex-wrap gap-2">
+                                                {palletSuggestions.map((pallet) => (
+                                                    <button
+                                                        key={pallet.id || pallet.pallet_code}
+                                                        type="button"
+                                                        className="rounded-full border px-3 py-1 text-xs font-medium hover:bg-muted/30"
+                                                        onClick={() => {
+                                                            setPalletNumber(pallet.pallet_code);
+                                                            setCommonPalletId(pallet.id || '');
+                                                        }}
+                                                        disabled={isSubmittingGrn}
+                                                    >
+                                                        {pallet.pallet_code}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="space-y-1">
+                                            <p className="text-xs font-semibold text-muted-foreground">Common pallet for all items</p>
+                                            <select
+                                                value={commonPalletId}
+                                                onChange={(e) => {
+                                                    const nextId = e.target.value;
+                                                    setCommonPalletId(nextId);
+                                                    const pallet = availablePallets.find((entry) => String(entry.id || '') === nextId);
+                                                    if (pallet?.pallet_code) setPalletNumber(pallet.pallet_code);
+                                                }}
+                                                disabled={isSubmittingGrn || isLoadingPallets}
+                                                className="h-9 w-full text-xs rounded border border-input bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                                            >
+                                                <option value="">Select one pallet for all items...</option>
+                                                {availablePallets.map((pallet) => (
+                                                    <option key={pallet.id || pallet.pallet_code} value={pallet.id || ''}>
+                                                        {pallet.pallet_code} {pallet.barcode ? `(${pallet.barcode})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        {selectedPallet && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Common selected pallet: <span className="font-mono text-foreground">{selectedPallet.pallet_code}</span>
+                                                {selectedPallet.barcode ? ` | Barcode: ${selectedPallet.barcode}` : ''}
+                                                {selectedPallet.status ? ` | Status: ${selectedPallet.status}` : ''}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                                        {isLoadingPallets ? 'Loading pallets...' : `${availablePallets.length} pallet${availablePallets.length === 1 ? '' : 's'} available`}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="border rounded-md overflow-hidden bg-background">
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader className="bg-muted/70">
+                                            <TableRow>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider">Item</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider text-right min-w-[80px]">Expected</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider text-right min-w-[110px]">Received *</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider min-w-[180px]">Shortage Note</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider text-right min-w-[110px]">Accepted *</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider text-right min-w-[110px]">Rejected</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider min-w-[140px]">Common Pallet</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {items.map((item) => {
+                                                const row = grnRows[item.asnShipmentItemId] || {
+                                                    received_quantity: item.expectedQuantity,
+                                                    accepted_quantity: item.expectedQuantity,
+                                                    rejected_quantity: 0,
+                                                    shortage_note: '',
+                                                };
+                                                const overLimit = (row.accepted_quantity + row.rejected_quantity) > row.received_quantity;
+                                                const isShortReceived = row.received_quantity < item.expectedQuantity;
+
+                                                return (
+                                                    <TableRow key={item.asnShipmentItemId} className={overLimit ? 'bg-destructive/5' : ''}>
+                                                        <TableCell>
+                                                            <div className="flex flex-col">
+                                                                <span className="font-mono text-primary font-bold text-xs">{item.sku}</span>
+                                                                <span className="text-xs text-muted-foreground truncate max-w-[160px]">{item.description}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-bold text-muted-foreground text-sm">{item.expectedQuantity}</TableCell>
+
+                                                        {/* Received */}
+                                                        <TableCell>
+                                                            <Input
+                                                                type="text"
+                                                                inputMode="numeric"
+                                                                className="h-8 text-right font-mono text-sm"
+                                                                value={row.received_quantity}
+                                                                onChange={e => {
+                                                                    const val = e.target.value.replace(/[^0-9]/g, '');
+                                                                    updateGrnRow(item.asnShipmentItemId, 'received_quantity', val === '' ? 0 : parseInt(val, 10));
+                                                                }}
+                                                                onKeyDown={handleNumberKeyDown}
+                                                                onPaste={handleNumberPaste}
+                                                                disabled={isSubmittingGrn}
+                                                            />
+                                                        </TableCell>
+
+                                                        {/* Shortage Note */}
+                                                        <TableCell>
+                                                            <Input
+                                                                className={`h-8 text-xs ${isShortReceived && !String(row.shortage_note || '').trim() ? 'border-destructive' : ''}`}
+                                                                value={row.shortage_note || ''}
+                                                                onChange={e => updateGrnRow(item.asnShipmentItemId, 'shortage_note', e.target.value)}
+                                                                placeholder={isShortReceived ? 'Required: reason for shortage' : 'Optional'}
+                                                                disabled={isSubmittingGrn}
+                                                            />
+                                                        </TableCell>
+
+                                                        {/* Accepted Qty */}
+                                                        <TableCell>
+                                                            <Input
+                                                                type="text"
+                                                                inputMode="numeric"
+                                                                className={`h-8 text-right font-mono text-sm ${overLimit ? 'border-destructive' : ''}`}
+                                                                value={row.accepted_quantity}
+                                                                onChange={e => {
+                                                                    const val = e.target.value.replace(/[^0-9]/g, '');
+                                                                    updateGrnRow(item.asnShipmentItemId, 'accepted_quantity', val === '' ? 0 : parseInt(val, 10));
+                                                                }}
+                                                                onKeyDown={handleNumberKeyDown}
+                                                                onPaste={handleNumberPaste}
+                                                                disabled={isSubmittingGrn}
+                                                            />
+                                                        </TableCell>
+
+                                                        {/* Rejected Qty */}
+                                                        <TableCell>
+                                                            <Input
+                                                                type="text"
+                                                                inputMode="numeric"
+                                                                className={`h-8 text-right font-mono text-sm ${overLimit ? 'border-destructive' : ''}`}
+                                                                value={row.rejected_quantity}
+                                                                onChange={e => {
+                                                                    const val = e.target.value.replace(/[^0-9]/g, '');
+                                                                    updateGrnRow(item.asnShipmentItemId, 'rejected_quantity', val === '' ? 0 : parseInt(val, 10));
+                                                                }}
+                                                                onKeyDown={handleNumberKeyDown}
+                                                                onPaste={handleNumberPaste}
+                                                                disabled={isSubmittingGrn}
+                                                            />
+                                                        </TableCell>
+
+                                                        <TableCell>
+                                                            {(row.accepted_quantity > 0 || row.rejected_quantity > 0) && selectedPallet ? (
+                                                                <Badge variant="outline" className="whitespace-nowrap text-xs">{selectedPallet.pallet_code}</Badge>
+                                                            ) : (
+                                                                <span className="text-xs text-muted-foreground">Select above</span>
+                                                            )}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-center p-6 border-t bg-background shrink-0">
+                            <Button variant="outline" onClick={() => setShowGrnForm(false)} disabled={isSubmittingGrn}>
+                                Cancel
+                            </Button>
+                            <Button onClick={handleGrnSubmit} disabled={isSubmittingGrn} className="gap-2 px-8 bg-green-600 hover:bg-green-700">
+                                {isSubmittingGrn ? <><Loader2 className="w-4 h-4 animate-spin" />Generating... </> : <><ClipboardCheck className="w-4 h-4" />Submit GRN </>}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            )}
         </>
     );
 };

@@ -1,9 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, AlertTriangle, Search, Package, Eye, X } from "lucide-react";
+import { RefreshCw, AlertTriangle, Search, Package, Eye, ChevronDown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { formatDisplayDateTime } from "@/lib/date";
 import api from "@/services/api";
 import {
   Table,
@@ -143,18 +151,7 @@ function normalizeTask(task: PutawayTaskApi): PutawayTask {
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
+  return formatDisplayDateTime(iso, "—");
 }
 
 interface PriorityMeta {
@@ -228,90 +225,93 @@ function statusMeta(raw: string): StatusMeta {
   }
 }
 
-function buildMockTaskDetail(taskId: string, seedTask?: PutawayTask): PutawayTaskDetail {
-  const now = new Date().toISOString();
-  return {
-    id: taskId,
-    task_number: seedTask?.task_number || `PUT-${taskId.slice(0, 8).toUpperCase()}`,
-    inbound_shipment_id: "inbound-shipment-id",
-    grn_id: "grn-id",
-    asn_shipment_item_id: "asn-shipment-item-id",
-    item_id: "item-id",
-    item_sku: seedTask?.item_sku || "SKU-000",
-    item_description: seedTask?.item_description || "Demo item description",
-    quantity_to_put: seedTask?.quantity_to_put || "0",
-    quantity_put: seedTask?.quantity_put || "0",
-    source_location: "SRC-A1",
-    suggested_bin_id: "bin-id",
-    suggested_bin_code: "BIN-A-01",
-    actual_bin_code: "BIN-A-01",
-    lot_number: "LOT-001",
-    batch_number: "BATCH-001",
-    expiry_date: null,
-    priority: seedTask?.priority || 0,
-    notes: "Mock detail shown because detail API request failed.",
-    task_data: {},
-    assigned_to_id: "assigned-user-id",
-    assigned_to_name: seedTask?.assigned_to_name || "Unassigned",
-    assigned_at: now,
-    started_at: null,
-    completed_at: seedTask?.completed_at || null,
-    status: seedTask?.status || "pending",
-    queue_position: 0,
-    created_by_id: "creator-id",
-    created_by_name: "System",
-    created_at: seedTask?.created_at || now,
-    updated_at: now,
-    inbound_shipment_number: "INB-0001",
-    grn_number: "GRN-0001",
-  };
-}
-
-const sectionTitleClass = "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
-const sectionCardClass = "rounded-lg border border-border bg-card p-3";
-
-function DetailField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium break-all">{value || "—"}</p>
-    </div>
-  );
-}
-
-function getTaskDataValue(taskData: Record<string, object>, key: string): unknown {
-  const value = (taskData as Record<string, unknown>)[key];
-  return value === undefined || value === null ? "—" : value;
-}
-
-function formatTaskDataValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (Array.isArray(value)) return value.length ? value.map((v) => String(v)).join(", ") : "—";
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "—";
-    }
-  }
-  return String(value);
-}
-
-function TaskDataField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-border bg-muted/30 p-3">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-medium break-all">{value}</p>
-    </div>
-  );
-}
-
 // ── main component ─────────────────────────────────────────────────────────
 
 type FilterStatus = "all" | "pending" | "in_progress" | "completed";
 type FilterPriority = "all" | "1" | "2" | "3" | "0";
+type CardStatusFilter = "all" | "pending" | "in_progress" | "completed";
+
+// Sort field types
+type SortField = 'created_at' | 'completed_at' | 'task_number' | 'item_sku' | 'quantity_to_put' | 'priority' | 'status' | 'assigned_to';
+type SortOrder = 'asc' | 'desc';
+
+// Priority sort order (High=1 → Medium=2 → Low=3)
+const PRIORITY_SORT_ORDER: { [key: number]: number } = {
+  1: 0,
+  2: 1,
+  3: 2,
+  0: 3,
+};
+
+// Status sort order
+const STATUS_SORT_ORDER: { [key: string]: number } = {
+  'pending': 0,
+  'in_progress': 1,
+  'completed': 2,
+};
+
+// Get order button label based on sort field and direction
+const getOrderLabel = (field: SortField, order: SortOrder): string => {
+  if (field === 'created_at' || field === 'completed_at') {
+    return order === 'desc' ? '↓ Newest' : '↑ Oldest';
+  } else if (field === 'task_number' || field === 'item_sku' || field === 'assigned_to') {
+    return order === 'desc' ? '↓ Z→A' : '↑ A→Z';
+  } else if (field === 'quantity_to_put') {
+    return order === 'desc' ? '↓ High→Low' : '↑ Low→High';
+  } else if (field === 'priority') {
+    return order === 'desc' ? '↓ High first' : '↑ Low first';
+  } else if (field === 'status') {
+    return order === 'desc' ? '↓ Completed first' : '↑ Pending first';
+  }
+  return order === 'desc' ? '↓' : '↑';
+};
+
+// Sort putaway tasks array
+const sortPutawayTasks = (taskList: PutawayTask[], field: SortField, order: SortOrder): PutawayTask[] => {
+  const sorted = [...taskList].sort((a, b) => {
+    let aVal: any;
+    let bVal: any;
+
+    if (field === 'created_at') {
+      aVal = new Date(a.created_at || 0).getTime();
+      bVal = new Date(b.created_at || 0).getTime();
+    } else if (field === 'completed_at') {
+      aVal = new Date(a.completed_at || 0).getTime();
+      bVal = new Date(b.completed_at || 0).getTime();
+    } else if (field === 'task_number') {
+      aVal = a.task_number || '';
+      bVal = b.task_number || '';
+    } else if (field === 'item_sku') {
+      aVal = a.item_sku || '';
+      bVal = b.item_sku || '';
+    } else if (field === 'quantity_to_put') {
+      aVal = parseInt(a.quantity_to_put || '0', 10);
+      bVal = parseInt(b.quantity_to_put || '0', 10);
+    } else if (field === 'priority') {
+      aVal = PRIORITY_SORT_ORDER[a.priority] ?? 999;
+      bVal = PRIORITY_SORT_ORDER[b.priority] ?? 999;
+    } else if (field === 'status') {
+      aVal = STATUS_SORT_ORDER[a.status] ?? 999;
+      bVal = STATUS_SORT_ORDER[b.status] ?? 999;
+    } else if (field === 'assigned_to') {
+      aVal = a.assigned_to_name || '';
+      bVal = b.assigned_to_name || '';
+    }
+
+    if (typeof aVal === 'string') {
+      aVal = aVal.toLowerCase();
+      bVal = bVal.toLowerCase();
+      return order === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    } else {
+      return order === 'asc' ? aVal - bVal : bVal - aVal;
+    }
+  });
+
+  return sorted;
+};
 
 export default function PutawayTasks() {
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<PutawayTask[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -319,10 +319,10 @@ export default function PutawayTasks() {
   const [search, setSearch] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [filterPriority, setFilterPriority] = useState<FilterPriority>("all");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [taskDetail, setTaskDetail] = useState<PutawayTaskDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState<boolean>(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
+  const [cardStatusFilter, setCardStatusFilter] = useState<CardStatusFilter>("all");
+  const [sortField, setSortField] = useState<SortField>('created_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -387,6 +387,10 @@ export default function PutawayTasks() {
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const completedCount = tasks.filter((t) => t.status === "completed").length;
 
+  const toggleCardFilter = useCallback((target: CardStatusFilter) => {
+    setCardStatusFilter((current) => (current === target ? "all" : target));
+  }, []);
+
   // ── filtered data ──────────────────────────────────────────────────────
 
   const filtered = tasks.filter((t) => {
@@ -399,39 +403,23 @@ export default function PutawayTasks() {
     const matchStatus =
       filterStatus === "all" || t.status === filterStatus;
 
+    const matchCardStatus =
+      cardStatusFilter === "all" || t.status === cardStatusFilter;
+
     const matchPriority =
       filterPriority === "all" || t.priority === Number(filterPriority);
 
-    return matchSearch && matchStatus && matchPriority;
+    return matchSearch && matchStatus && matchCardStatus && matchPriority;
   });
 
-  const closeTaskDetailModal = () => {
-    setSelectedTaskId(null);
-    setTaskDetail(null);
-    setDetailError(null);
-    setDetailLoading(false);
-  };
-
-  const loadTaskDetail = useCallback(async (taskId: string) => {
-    setSelectedTaskId(taskId);
-    setTaskDetail(null);
-    setDetailError(null);
-    setDetailLoading(true);
-
-    try {
-      const detail = await fetchTaskDetail(taskId);
-      setTaskDetail(detail);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to fetch task details.";
-      setDetailError(message);
-      const seedTask = tasks.find((t) => t.id === taskId);
-      setTaskDetail(buildMockTaskDetail(taskId, seedTask));
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [tasks]);
-
-  const hasTaskData = !!taskDetail && Object.keys(taskDetail.task_data).length > 0;
+  const openTaskDetailPage = useCallback((task: PutawayTask) => {
+    navigate(`/dashboard/putaway-tasks/${task.id}`, {
+      state: {
+        from: "/dashboard/putaway-tasks",
+        seedTask: task,
+      },
+    });
+  }, [navigate]);
 
   // ── loading state ──────────────────────────────────────────────────────
 
@@ -475,7 +463,19 @@ export default function PutawayTasks() {
 
       {/* Stats bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleCardFilter("all")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleCardFilter("all");
+            }
+          }}
+          className={`cursor-pointer transition-colors ${cardStatusFilter === "all" ? "border-slate-400 bg-slate-50 dark:bg-slate-900/30" : ""}`}
+          aria-pressed={cardStatusFilter === "all"}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Tasks</CardTitle>
           </CardHeader>
@@ -483,7 +483,19 @@ export default function PutawayTasks() {
             <p className="text-3xl font-bold">{total}</p>
           </CardContent>
         </Card>
-        <Card className="border-blue-200 dark:border-blue-800">
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleCardFilter("pending")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleCardFilter("pending");
+            }
+          }}
+          className={`cursor-pointer transition-colors border-blue-200 dark:border-blue-800 ${cardStatusFilter === "pending" ? "bg-blue-50 border-blue-400 dark:bg-blue-900/30" : ""}`}
+          aria-pressed={cardStatusFilter === "pending"}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-400">Pending</CardTitle>
           </CardHeader>
@@ -491,7 +503,19 @@ export default function PutawayTasks() {
             <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{pendingCount}</p>
           </CardContent>
         </Card>
-        <Card className="border-orange-200 dark:border-orange-800">
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleCardFilter("in_progress")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleCardFilter("in_progress");
+            }
+          }}
+          className={`cursor-pointer transition-colors border-orange-200 dark:border-orange-800 ${cardStatusFilter === "in_progress" ? "bg-orange-50 border-orange-400 dark:bg-orange-900/30" : ""}`}
+          aria-pressed={cardStatusFilter === "in_progress"}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-orange-700 dark:text-orange-400">In Progress</CardTitle>
           </CardHeader>
@@ -499,7 +523,19 @@ export default function PutawayTasks() {
             <p className="text-3xl font-bold text-orange-700 dark:text-orange-400">{inProgressCount}</p>
           </CardContent>
         </Card>
-        <Card className="border-green-200 dark:border-green-800">
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleCardFilter("completed")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggleCardFilter("completed");
+            }
+          }}
+          className={`cursor-pointer transition-colors border-green-200 dark:border-green-800 ${cardStatusFilter === "completed" ? "bg-green-50 border-green-400 dark:bg-green-900/30" : ""}`}
+          aria-pressed={cardStatusFilter === "completed"}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-green-700 dark:text-green-400">Completed</CardTitle>
           </CardHeader>
@@ -544,6 +580,60 @@ export default function PutawayTasks() {
           <option value="3">Low</option>
           <option value="0">Unknown</option>
         </select>
+
+          {/* Sort by dropdown */}
+          <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <ChevronDown className="w-4 h-4" />
+                Sort by
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onClick={() => { setSortField('created_at'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>Created At</span>
+                {sortField === 'created_at' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortField('completed_at'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>Completed At</span>
+                {sortField === 'completed_at' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortField('task_number'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>Task #</span>
+                {sortField === 'task_number' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortField('item_sku'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>SKU</span>
+                {sortField === 'item_sku' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortField('quantity_to_put'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>Qty To Put</span>
+                {sortField === 'quantity_to_put' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortField('priority'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>Priority</span>
+                {sortField === 'priority' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortField('status'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>Status</span>
+                {sortField === 'status' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortField('assigned_to'); setIsDropdownOpen(false); }} className="flex items-center justify-between">
+                <span>Assigned To</span>
+                {sortField === 'assigned_to' && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Order toggle button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+          >
+            {getOrderLabel(sortField, sortOrder)}
+          </Button>
       </div>
 
       {/* Empty state */}
@@ -574,7 +664,7 @@ export default function PutawayTasks() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((task) => {
+                {sortPutawayTasks(filtered, sortField, sortOrder).map((task) => {
                 const sm = statusMeta(task.status);
                 const pm = priorityMeta(task.priority);
                 return (
@@ -622,7 +712,7 @@ export default function PutawayTasks() {
                     <TableCell className="text-right">
                       <button
                         type="button"
-                        onClick={() => loadTaskDetail(task.id)}
+                        onClick={() => openTaskDetailPage(task)}
                         className="inline-flex items-center justify-center rounded-md border border-border bg-background p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         aria-label={`View details for task ${task.task_number}`}
                       >
@@ -640,7 +730,7 @@ export default function PutawayTasks() {
       {/* Mobile cards */}
       {filtered.length > 0 && (
         <div className="2xl:hidden space-y-3">
-          {filtered.map((task) => {
+            {sortPutawayTasks(filtered, sortField, sortOrder).map((task) => {
             const sm = statusMeta(task.status);
             const pm = priorityMeta(task.priority);
             return (
@@ -657,7 +747,7 @@ export default function PutawayTasks() {
                       <Badge variant="outline" className={pm.className}>{pm.label}</Badge>
                       <button
                         type="button"
-                        onClick={() => loadTaskDetail(task.id)}
+                        onClick={() => openTaskDetailPage(task)}
                         className="inline-flex items-center justify-center rounded-md border border-border bg-background p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         aria-label={`View details for task ${task.task_number}`}
                       >
@@ -715,182 +805,6 @@ export default function PutawayTasks() {
       )}
 
     </div>
-
-      {/* Task Detail Modal */}
-      {selectedTaskId && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 sm:p-4 transition-opacity duration-200"
-          onClick={closeTaskDetailModal}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="h-full w-full max-w-[calc(100vw-1rem)] sm:h-auto sm:max-h-[88vh] sm:max-w-5xl lg:max-w-6xl rounded-none sm:rounded-xl border border-border bg-background shadow-2xl overflow-hidden transform transition-all duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div>
-                <h2 className="text-lg font-semibold">Task Detail</h2>
-                <p className="text-xs text-muted-foreground">Task ID: {selectedTaskId}</p>
-              </div>
-              <button
-                type="button"
-                onClick={closeTaskDetailModal}
-                className="inline-flex items-center justify-center rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Close task detail"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="max-h-[calc(100vh-76px)] sm:max-h-[calc(88vh-76px)] overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
-              {detailLoading && (
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  Loading task detail...
-                </div>
-              )}
-
-              {detailError && (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
-                  <p className="text-sm text-destructive">
-                    <strong>Error:</strong> {detailError}
-                  </p>
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => selectedTaskId && loadTaskDetail(selectedTaskId)}
-                      className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {taskDetail && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <section className={sectionCardClass}>
-                    <p className={sectionTitleClass}>Section 1 — Task Overview</p>
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <DetailField label="Task Number" value={taskDetail.task_number} />
-                      <div className="space-y-1">
-                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Status</p>
-                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusMeta(taskDetail.status).className}`}>
-                          {statusMeta(taskDetail.status).label}
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Priority</p>
-                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${priorityMeta(taskDetail.priority).className}`}>
-                          {priorityMeta(taskDetail.priority).label}
-                        </span>
-                      </div>
-                      <DetailField label="Queue Position" value={String(taskDetail.queue_position)} />
-                    </div>
-                  </section>
-
-                  <section className={sectionCardClass}>
-                    <p className={sectionTitleClass}>Section 4 — Shipment & GRN</p>
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <DetailField label="Inbound Shipment Number" value={taskDetail.inbound_shipment_number || "—"} />
-                      <DetailField label="GRN Number" value={taskDetail.grn_number || "—"} />
-                    </div>
-                  </section>
-
-                  <section className={`${sectionCardClass} lg:col-span-2`}>
-                    <p className={sectionTitleClass}>Section 2 — Item Details</p>
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      <DetailField label="SKU" value={taskDetail.item_sku} />
-                      <DetailField label="Description" value={taskDetail.item_description} />
-                      <DetailField label="Qty To Put" value={cleanQuantity(taskDetail.quantity_to_put)} />
-                      <DetailField label="Qty Put" value={cleanQuantity(taskDetail.quantity_put)} />
-                      <DetailField label="Lot Number" value={taskDetail.lot_number || "—"} />
-                      <DetailField label="Batch Number" value={taskDetail.batch_number || "—"} />
-                      <DetailField label="Expiry Date" value={formatDate(taskDetail.expiry_date)} />
-                    </div>
-                  </section>
-
-                  <section className={`${sectionCardClass} lg:col-span-2`}>
-                    <p className={sectionTitleClass}>Section 3 — Location Info</p>
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <DetailField label="Source Location" value={taskDetail.source_location || "—"} />
-                      <DetailField label="Suggested Bin Code" value={taskDetail.suggested_bin_code || "—"} />
-                      <DetailField label="Actual Bin Code" value={taskDetail.actual_bin_code || "—"} />
-                    </div>
-                  </section>
-
-                  <section className={`${sectionCardClass} lg:col-span-2`}>
-                    <p className={sectionTitleClass}>Section 5 — Assignment & Timeline</p>
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      <DetailField label="Assigned To" value={taskDetail.assigned_to_name || "—"} />
-                      <DetailField label="Assigned At" value={formatDate(taskDetail.assigned_at)} />
-                      <DetailField label="Started At" value={formatDate(taskDetail.started_at)} />
-                      <DetailField label="Completed At" value={formatDate(taskDetail.completed_at)} />
-                      <DetailField label="Created By" value={taskDetail.created_by_name || "—"} />
-                      <DetailField label="Created At" value={formatDate(taskDetail.created_at)} />
-                      <DetailField label="Updated At" value={formatDate(taskDetail.updated_at)} />
-                    </div>
-                  </section>
-
-                  <section className={sectionCardClass}>
-                    <p className={sectionTitleClass}>Section 6 — Notes</p>
-                    <p className="mt-2 text-sm">{taskDetail.notes?.trim() ? taskDetail.notes : "—"}</p>
-                  </section>
-
-                  {hasTaskData && (
-                    <section className={`${sectionCardClass} lg:col-span-1`}>
-                      <p className={sectionTitleClass}>Task Data Insights</p>
-                      <div className="mt-2 space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <TaskDataField
-                            label="Strategy"
-                            value={formatTaskDataValue(getTaskDataValue(taskDetail.task_data, "strategy"))}
-                          />
-                          <TaskDataField
-                            label="Items Count"
-                            value={formatTaskDataValue(getTaskDataValue(taskDetail.task_data, "items_count"))}
-                          />
-                          <div className="sm:col-span-2">
-                            <TaskDataField
-                              label="Reason"
-                              value={formatTaskDataValue(getTaskDataValue(taskDetail.task_data, "reason"))}
-                            />
-                          </div>
-                          <TaskDataField
-                            label="Pallet ID"
-                            value={formatTaskDataValue(getTaskDataValue(taskDetail.task_data, "pallet_id"))}
-                          />
-                          <TaskDataField
-                            label="Zone"
-                            value={formatTaskDataValue(getTaskDataValue(taskDetail.task_data, "zone"))}
-                          />
-                        </div>
-
-                        {Array.isArray((taskDetail.task_data as Record<string, unknown>).group_items) && (
-                          <div>
-                            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Group Items</p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {((taskDetail.task_data as Record<string, unknown>).group_items as unknown[]).map((item, index) => (
-                                <span
-                                  key={`${String(item)}-${index}`}
-                                  className="inline-flex max-w-full rounded-full border border-border bg-background px-2.5 py-1 text-xs font-mono text-foreground break-all whitespace-normal"
-                                >
-                                  {String(item)}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -132,7 +132,8 @@ const Index = () => {
                                 <input
                                     id="username"
                                     type="text"
-                                    placeholder="your_username"
+                                    placeholder="Username"
+                                    autoFocus
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
                                     className="flex h-12 w-full rounded-lg border border-input bg-transparent px-4 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 transition-all"

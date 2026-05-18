@@ -15,6 +15,49 @@ import { toast } from "sonner";
 import { zoneService } from "@/services/zoneService";
 import type { ZoneData } from "@/services/zoneService";
 import { Loader2 } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+
+// ✅ Clean list — matches backend enum exactly
+const zoneTypes = [
+    // Inbound / Outbound
+    { value: 'RECEIVING',  label: 'Receiving Area',       category: 'Inbound/Outbound' },
+    { value: 'STAGING',    label: 'Staging / Cross-Dock', category: 'Inbound/Outbound' },
+    { value: 'DISPATCH',   label: 'Dispatch / Shipping',  category: 'Inbound/Outbound' },
+    // Storage
+    { value: 'BULK',       label: 'Bulk Storage',         category: 'Storage' },
+    { value: 'PALLET',     label: 'Pallet Racking',       category: 'Storage' },
+    { value: 'RACK',       label: 'Rack / Shelf Storage', category: 'Storage' },
+    { value: 'FLOOR',      label: 'Floor Storage',        category: 'Storage' },
+    // Picking
+    { value: 'PICKER',     label: 'Pick Face (A-Class)',  category: 'Picking' },
+    { value: 'NORMAL',     label: 'Standard Pick Zone',   category: 'Picking' },
+    // Processing
+    { value: 'PACKING',    label: 'Packing Station',      category: 'Processing' },
+    { value: 'RETURNS',    label: 'Returns Processing',   category: 'Processing' },
+    // Special Handling
+    { value: 'QUARANTINE', label: 'Quarantine',           category: 'Special Handling' },
+    { value: 'REJECTED',   label: 'Rejected / Damaged',   category: 'Special Handling' },
+    { value: 'HAZMAT',     label: 'Hazardous Materials',  category: 'Special Handling' },
+    { value: 'HIGH_VALUE', label: 'High Value (Secure)',  category: 'Special Handling' },
+    { value: 'COLD_STORAGE', label: 'Cold Storage',        category: 'Special Handling' },
+];
+
+// Separate dropdown for storage condition
+const storageConditions = [
+    { value: 'AMBIENT',  label: 'Ambient (Default)' },
+    { value: 'CHILLED',  label: 'Chilled (8-15°C)' },
+    { value: 'COLD',     label: 'Cold (2-8°C)' },
+    { value: 'FROZEN',   label: 'Frozen (-18°C)' },
+    { value: 'HAZMAT',   label: 'Hazardous' },
+];
 
 interface AddZoneModalProps {
     open: boolean;
@@ -43,6 +86,7 @@ export const AddZoneModal: React.FC<AddZoneModalProps> = ({ open, setOpen, wareh
         special_condition: "",
         max_pallet_positions: 0,
         is_active: true,
+        storage_condition: "AMBIENT",
     });
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -63,6 +107,13 @@ export const AddZoneModal: React.FC<AddZoneModalProps> = ({ open, setOpen, wareh
         setFormData(prev => ({
             ...prev,
             [name]: checked
+        }));
+    };
+
+    const handleSelectChange = (name: string, value: string) => {
+        setFormData(prev => ({
+            ...prev,
+            [name]: value
         }));
     };
 
@@ -110,6 +161,7 @@ export const AddZoneModal: React.FC<AddZoneModalProps> = ({ open, setOpen, wareh
                 special_condition: "",
                 max_pallet_positions: 0,
                 is_active: true,
+                storage_condition: "AMBIENT",
             });
         } catch (error: any) {
             console.error("Error creating zone:", error);
@@ -150,26 +202,51 @@ export const AddZoneModal: React.FC<AddZoneModalProps> = ({ open, setOpen, wareh
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="zone_type">Zone Type *</Label>
-                            <Input id="zone_type" name="zone_type" value={formData.zone_type} onChange={handleInputChange} placeholder="e.g. RACK, FLOOR, COLD" required />
+                            <Select 
+                                value={formData.zone_type} 
+                                onValueChange={(v) => handleSelectChange("zone_type", v)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Zone Type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {Array.from(new Set(zoneTypes.map(z => z.category))).map(category => (
+                                        <SelectGroup key={category}>
+                                            <SelectLabel className="text-xs font-bold text-muted-foreground uppercase px-2 py-1.5">{category}</SelectLabel>
+                                            {zoneTypes.filter(z => z.category === category).map(type => (
+                                                <SelectItem key={type.value} value={type.value}>
+                                                    {type.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectGroup>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="max_pallet_positions">Max Pallet Positions</Label>
-                            <Input type="number" id="max_pallet_positions" name="max_pallet_positions" value={formData.max_pallet_positions} onChange={handleInputChange} min="0" />
+                            <Label htmlFor="storage_condition">Storage Condition</Label>
+                            <Select 
+                                value={formData.storage_condition} 
+                                onValueChange={(v) => handleSelectChange("storage_condition", v)}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Condition" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {storageConditions.map(condition => (
+                                        <SelectItem key={condition.value} value={condition.value}>
+                                            {condition.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="length_meters">Length (m)</Label>
-                            <Input type="number" step="0.1" id="length_meters" name="length_meters" value={formData.length_meters} onChange={handleInputChange} min="0" />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="width_meters">Width (m)</Label>
-                            <Input type="number" step="0.1" id="width_meters" name="width_meters" value={formData.width_meters} onChange={handleInputChange} min="0" />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="height_meters">Height (m)</Label>
-                            <Input type="number" step="0.1" id="height_meters" name="height_meters" value={formData.height_meters} onChange={handleInputChange} min="0" />
+                            <Label htmlFor="max_pallet_positions">Max Pallet Positions</Label>
+                            <Input type="number" id="max_pallet_positions" name="max_pallet_positions" value={formData.max_pallet_positions} onChange={handleInputChange} min="0" />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="floor_area_sqft">Area (sqft)</Label>

@@ -45,7 +45,7 @@ export const asnService = {
      * Update an existing ASN by ID
      */
     update: async (id: string | number, data: any) => {
-        const response = await api.put(`/asn/${id}`, data);
+        const response = await api.patch(`/asn/${id}`, data);
         return response.data;
     },
 

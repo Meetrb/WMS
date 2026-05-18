@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useAuth } from "@/components/auth-provider";
 
 import {
     Table,
@@ -17,6 +18,7 @@ import { inboundService } from "@/services/inboundService";
 import { InboundCard } from "@/components/ui/InboundCard";
 import { ArrivedModal } from "@/components/ui/ArrivedModal";
 import { InboundProcessModal } from "@/components/inbound/InboundProcessModal";
+import { formatDisplayDate } from "@/lib/date";
 
 import {
     Select,
@@ -172,8 +174,14 @@ const normalizeInboundItem = (item: any): InboundItem => {
         vehicle_number: String(vehicle),
         driver_name: String(driver),
         dock_number: String(dock),
-        warehouse_name: String(data.warehouseName || data.warehouse?.name || "N/A"),
-        warehouse_code: String(data.warehouseCode || data.warehouse?.code || "N/A"),
+        warehouse_name: String(data.warehouseName || data.warehouse_name || data.warehouse?.name || "N/A"),
+        warehouse_code: String(
+            data.warehouseCode ||
+            data.warehouse_code ||
+            data.warehouse?.code ||
+            firstShipment.warehouse_code ||
+            "N/A"
+        ),
         shipment_id: String(data.shipmentId || data.shipment_id || firstShipment.shipment_id || "N/A"),
         is_overdue: !!data.is_overdue || (expected && new Date(expected) < new Date() && !actual),
         days_overdue: Number(data.days_overdue) || 0,
@@ -244,6 +252,8 @@ const normalizeInboundDetail = (data: any): InboundDetail => {
         driver_name: driver,
         driver_phone: item.driver_phone || item.driverPhone || firstShipment.driver_phone || firstShipment.driverPhone || null,
         dock_number: dock,
+        warehouse_name: item.warehouse_name || item.warehouseName || item.warehouse?.name || firstShipment.warehouse_name || null,
+        warehouse_code: item.warehouse_code || item.warehouseCode || item.warehouse?.code || firstShipment.warehouse_code || null,
         items_count: Number(itemsCount) || 0,
         total_quantity: Number(totalQty) || 0,
         items: itemsRaw.map((i: any) => ({
@@ -302,10 +312,10 @@ const ShipmentRow = ({ item, onView, onMarkArrived, isArriving }: { item: Inboun
                 </div>
             </TableCell>
             <TableCell className="text-[11px] font-medium">
-                {item.expected_arrival_date && item.expected_arrival_date !== "N/A" && item.expected_arrival_date !== "undefined" ? new Date(item.expected_arrival_date).toLocaleDateString() : 'N/A'}
+                {item.expected_arrival_date && item.expected_arrival_date !== "N/A" && item.expected_arrival_date !== "undefined" ? formatDisplayDate(item.expected_arrival_date, "N/A") : 'N/A'}
             </TableCell>
             <TableCell className="text-[11px] font-bold text-green-600">
-                {item.actual_arrival_date && item.actual_arrival_date !== "N/A" && item.actual_arrival_date !== "undefined" ? new Date(item.actual_arrival_date).toLocaleDateString() : 'Pending'}
+                {item.actual_arrival_date && item.actual_arrival_date !== "N/A" && item.actual_arrival_date !== "undefined" ? formatDisplayDate(item.actual_arrival_date, "Pending") : 'Pending'}
             </TableCell>
             <TableCell className="text-center">
                 <div className="flex flex-col items-center">
@@ -348,14 +358,14 @@ const ShipmentRow = ({ item, onView, onMarkArrived, isArriving }: { item: Inboun
                             variant="outline"
                             size="sm"
                             disabled={isArriving}
-                            className="h-8 border-green-600 text-green-600 hover:bg-green-600 hover:text-white transition-all gap-1 font-bold text-[10px] uppercase disabled:opacity-50"
+                            className="h-8 border-border text-foreground hover:bg-muted hover:text-foreground transition-all gap-1 font-bold text-[10px] uppercase disabled:opacity-50"
                             onClick={() => onMarkArrived(item)}
                         >
-                            {isArriving ? <div className="h-3 w-3 animate-spin rounded-full border-b-2 border-green-600 dark:border-green-400"></div> : <ClipboardCheck className="h-3 w-3" />}
+                            {isArriving ? <div className="h-3 w-3 animate-spin rounded-full border-b-2 border-foreground/70"></div> : <ClipboardCheck className="h-3 w-3" />}
                             {isArriving ? 'Arriving...' : 'Arrived'}
                         </Button>
                     )}
-                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-primary/10 hover:text-primary transition-all" onClick={() => onView(item.id)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted/30 hover:text-primary transition-all" onClick={() => onView(item.id)}>
                         <Eye className="h-4 w-4" />
                     </Button>
                 </div>
@@ -440,8 +450,14 @@ const InboundSection = ({
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    items.map((item) => (
-                                        <ShipmentRow key={item.id} item={item} onView={onView} onMarkArrived={onMarkArrived} isArriving={arrivingAsns?.has(item.id)} />
+                                    items.map((item, index) => (
+                                        <ShipmentRow
+                                            key={`${item.id || item.shipment_id || item.asn_number || "shipment"}-${index}`}
+                                            item={item}
+                                            onView={onView}
+                                            onMarkArrived={onMarkArrived}
+                                            isArriving={arrivingAsns?.has(item.id)}
+                                        />
                                     ))
                                 )}
                             </TableBody>
@@ -456,8 +472,14 @@ const InboundSection = ({
                             <p className="text-sm font-medium">{displayMessage || "No shipments found in this category."}</p>
                         </div>
                     ) : (
-                        items.map((item) => (
-                            <InboundCard key={item.id} item={item} onView={onView} onMarkArrived={onMarkArrived} isArriving={arrivingAsns?.has(item.id)} />
+                        items.map((item, index) => (
+                            <InboundCard
+                                key={`${item.id || item.shipment_id || item.asn_number || "inbound"}-${index}`}
+                                item={item}
+                                onView={onView}
+                                onMarkArrived={onMarkArrived}
+                                isArriving={arrivingAsns?.has(item.id)}
+                            />
                         ))
                     )}
                 </div>
@@ -481,6 +503,7 @@ const InboundSection = ({
 
 export const POManagementView = () => {
     // State
+    const { user } = useAuth();
     const [overview, setOverview] = useState<InboundOverview | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid');
@@ -860,6 +883,7 @@ export const POManagementView = () => {
                 initialData={selectedDetail}
                 rawData={rawInboundData}
                 onSuccess={handleArrivedSuccess}
+                allowGrnCreation={user?.role !== "admin"}
             />
 
         </div>

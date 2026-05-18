@@ -13,6 +13,7 @@ import {
     ClipboardCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDisplayDateTime } from "@/lib/date";
 
 interface InboundItem {
     id: string;
@@ -128,7 +129,7 @@ export const InboundCard = ({ item, onView, onMarkArrived, isArriving }: Inbound
                             </div>
                             <div className="flex items-center gap-3 text-xs">
                                 <Calendar className="h-4 w-4 text-primary/60" />
-                                <span className="font-bold">{item.expected_arrival_date && item.expected_arrival_date !== "N/A" && item.expected_arrival_date !== "undefined" ? new Date(item.expected_arrival_date).toLocaleString() : 'N/A'}</span>
+                                <span className="font-bold">{item.expected_arrival_date && item.expected_arrival_date !== "N/A" && item.expected_arrival_date !== "undefined" ? formatDisplayDateTime(item.expected_arrival_date, "N/A") : 'N/A'}</span>
                             </div>
                         </div>
 
@@ -175,9 +176,9 @@ export const InboundCard = ({ item, onView, onMarkArrived, isArriving }: Inbound
                                 onMarkArrived(item);
                             }}
                             disabled={isArriving}
-                            className="flex-1 h-10 bg-green-600 hover:bg-green-700 font-bold text-xs uppercase tracking-widest gap-2 disabled:opacity-50"
+                            className="flex-1 h-10 bg-muted text-foreground hover:bg-muted/80 font-bold text-xs uppercase tracking-widest gap-2 border border-border disabled:opacity-50"
                         >
-                            {isArriving ? <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-white"></div> : <ClipboardCheck className="h-4 w-4" />}
+                            {isArriving ? <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-foreground/70"></div> : <ClipboardCheck className="h-4 w-4" />}
                             {isArriving ? 'Arriving...' : 'Arrived'}
                         </Button>
                     )}
